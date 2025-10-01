@@ -1,9 +1,12 @@
 import * as assert from 'assert';
+import sinon from 'sinon';
+import * as prompts from '@inquirer/prompts';
 import { ScalewayCreateCliArgs, ScalewayInputPrompter } from '../../../../src/providers/scaleway/cli';
-import { DEFAULT_COMMON_CLI_ARGS, DEFAULT_COMMON_INPUT, getUnitTestCoreClient, getUnitTestCoreConfig } from '../../utils';
+import { DEFAULT_COMMON_CLI_ARGS, DEFAULT_COMMON_INPUT, getUnitTestCoreConfig } from '../../utils';
 import { PartialDeep } from 'type-fest';
 import lodash from 'lodash';
 import { ScalewayInstanceInput } from '../../../../src/providers/scaleway/state';
+import { ScalewayClient } from '../../../../src/providers/scaleway/sdk-client';
 
 describe('Scaleway input prompter', () => {
 
@@ -20,6 +23,7 @@ describe('Scaleway input prompter', () => {
             instanceType: "L4-1-24G",
             diskSizeGb: 20,
             dataDiskSizeGb: 100,
+            dataDiskIops: 5000,
             imageId: "123e4567-e89b-12d3-a456-426614174000",
             deleteInstanceServerOnStop: true
         }, 
@@ -33,6 +37,7 @@ describe('Scaleway input prompter', () => {
         name: instanceName,
         rootDiskSize: TEST_INPUT.provision.diskSizeGb,
         dataDiskSize: TEST_INPUT.provision.dataDiskSizeGb,
+        dataDiskIops: TEST_INPUT.provision.dataDiskIops,
         instanceType: TEST_INPUT.provision.instanceType,
         region: TEST_INPUT.provision.region,
         zone: TEST_INPUT.provision.zone,
@@ -42,8 +47,7 @@ describe('Scaleway input prompter', () => {
     }
 
     it('should return provided inputs without prompting when full input provider', async () => {
-        const coreClient = getUnitTestCoreClient()
-        const result = await new ScalewayInputPrompter({ coreConfig: coreConfig }).promptInput(TEST_INPUT, { autoApprove: true })
+    const result = await new ScalewayInputPrompter({ coreConfig: coreConfig }).promptInput(TEST_INPUT, { autoApprove: true })
         assert.deepEqual(result, TEST_INPUT)
     })
 
@@ -64,5 +68,28 @@ describe('Scaleway input prompter', () => {
         }
         
         assert.deepEqual(result, expected)
+    })
+
+    it('should allow selecting 5000 IOPS for data disk when prompted', async () => {
+        // Arrange: ensure only the IOPS prompt is triggered
+        const inputWithoutIops: ScalewayInstanceInput = lodash.cloneDeep(TEST_INPUT)
+        // dataDiskIops intentionally undefined to trigger the prompt
+        // Stub tiers discovery and prompt selection
+        const tiersStub = sinon.stub(ScalewayClient.prototype, 'listIopsTiers').resolves([5000, 15000])
+        const selectStub = sinon.stub(prompts, 'select').resolves(5000 as unknown as never)
+
+        try {
+            // Act
+            const result = await new ScalewayInputPrompter({ coreConfig: coreConfig }).promptInput(inputWithoutIops, { autoApprove: true })
+
+            // Assert
+            assert.strictEqual(result.provision.dataDiskIops, 5000)
+            // Other fields should remain unchanged
+            const expected: ScalewayInstanceInput = lodash.merge({}, TEST_INPUT, { provision: { dataDiskIops: 5000 } })
+            assert.deepEqual(result, expected)
+        } finally {
+            tiersStub.restore()
+            selectStub.restore()
+        }
     })
 })
