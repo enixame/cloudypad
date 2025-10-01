@@ -1,5 +1,6 @@
 import * as scw from "@pulumiverse/scaleway"
 import * as pulumi from "@pulumi/pulumi"
+import { SCALEWAY_DEFAULT_IOPS } from "./const"
 import { InstancePulumiClient } from "../../tools/pulumi/client"
 import { LocalWorkspaceOptions, OutputMap } from "@pulumi/pulumi/automation"
 import { SimplePortDefinition } from "../../core/const"
@@ -16,6 +17,7 @@ interface ScalewayInstanceArgs {
     },
     dataDisk?: {
         sizeGb: pulumi.Input<number>
+        iops?: pulumi.Input<number>
     }
 }
 
@@ -67,7 +69,8 @@ class CloudyPadScalewayInstance extends pulumi.ComponentResource {
             dataDisk = new scw.block.Volume(`${name}-data`, {
                 name: `${name}-data`,
                 sizeInGb: args.dataDisk.sizeGb,
-                iops: 5000,
+                // Default IOPS to constant if not specified
+                iops: args.dataDisk.iops ?? SCALEWAY_DEFAULT_IOPS,
                 tags: globalTags
             }, commonPulumiOpts)
 
@@ -178,6 +181,7 @@ export interface PulumiStackConfigScaleway {
     securityGroupPorts: SimplePortDefinition[]
     dataDisk?: {
         sizeGb: number
+        iops?: number
     }
 }
 
@@ -241,7 +245,7 @@ export class ScalewayPulumiClient extends InstancePulumiClient<PulumiStackConfig
         
         if(config.noInstanceServer) await stack.setConfig("noInstanceServer", { value: config.noInstanceServer.toString()})
         await stack.setConfig("instanceType", { value: config.instanceType})
-
+        
         if(config.imageId) await stack.setConfig("imageId", { value: config.imageId})
         if(config.dataDisk) await stack.setConfig("dataDisk", { value: JSON.stringify(config.dataDisk)})
 

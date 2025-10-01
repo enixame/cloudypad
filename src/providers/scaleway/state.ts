@@ -19,6 +19,7 @@ const ScalewayProvisionInputV1Schema = CommonProvisionInputV1Schema.extend({
     diskSizeGb: z.number().describe("Root (OS) disk size in GB."),
     imageId: z.string().optional().describe("Existing image ID for instance server. If set, disk size must be equal or greater than image size."),
     dataDiskSizeGb: z.number().default(0).describe("Data disk size in GB. If non-0, a disk dedicated for instance data (such as games data) will be created."),
+    dataDiskIops: z.number().int().positive().describe("Data disk IOPS for Scaleway Block Storage. Defaults to Scaleway minimum if not specified.").optional(),
 })
 
 const ScalewayInstanceStateV1Schema = InstanceStateV1Schema.extend({

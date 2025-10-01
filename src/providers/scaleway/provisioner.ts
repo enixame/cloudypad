@@ -70,6 +70,7 @@ export class ScalewayProvisioner extends AbstractInstanceProvisioner<ScalewayPro
             },
             dataDisk: this.args.provisionInput.dataDiskSizeGb ? {
                 sizeGb: this.args.provisionInput.dataDiskSizeGb,
+                iops: this.args.provisionInput.dataDiskIops,
             } : undefined,
             imageId: this.args.provisionInput.imageId,
             securityGroupPorts: this.getStreamingServerPorts(),

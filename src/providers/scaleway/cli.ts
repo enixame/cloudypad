@@ -1,11 +1,12 @@
-import { ScalewayInstanceInput, ScalewayStateParser, ScalewayInstanceStateV1, ScalewayProvisionInputV1 } from "./state"
+import { ScalewayInstanceInput, ScalewayInstanceStateV1, ScalewayProvisionInputV1 } from "./state"
 import { CommonConfigurationInputV1, CommonInstanceInput } from "../../core/state/state"
 import { input, select } from '@inquirer/prompts';
 import { AbstractInputPrompter, PromptOptions } from "../../cli/prompter";
 import { ScalewayClient } from "./sdk-client";
 import { CLOUDYPAD_PROVIDER_SCALEWAY } from "../../core/const";
 import { PartialDeep } from "type-fest";
-import { CLI_OPTION_AUTO_STOP_TIMEOUT, CLI_OPTION_AUTO_STOP_ENABLE, CLI_OPTION_STREAMING_SERVER, CLI_OPTION_SUNSHINE_IMAGE_REGISTRY, CLI_OPTION_SUNSHINE_IMAGE_TAG, CLI_OPTION_SUNSHINE_PASSWORD, CLI_OPTION_SUNSHINE_USERNAME, CliCommandGenerator, CreateCliArgs, UpdateCliArgs, CLI_OPTION_DISK_SIZE, CLI_OPTION_USE_LOCALE, CLI_OPTION_KEYBOARD_LAYOUT, CLI_OPTION_KEYBOARD_MODEL, CLI_OPTION_KEYBOARD_VARIANT, CLI_OPTION_KEYBOARD_OPTIONS, CLI_OPTION_DATA_DISK_SIZE, CLI_OPTION_ROOT_DISK_SIZE, BuildCreateCommandArgs, BuildUpdateCommandArgs, CLI_OPTION_DELETE_INSTANCE_SERVER_ON_STOP, CLI_OPTION_RATE_LIMIT_MAX_MBPS, CLI_OPTION_SUNSHINE_MAX_BITRATE_KBPS } from "../../cli/command";
+import { SCALEWAY_DEFAULT_IOPS, SCALEWAY_FALLBACK_IOPS_TIERS, SCALEWAY_IOPS_LABELS } from "./const";
+import { CLI_OPTION_AUTO_STOP_TIMEOUT, CLI_OPTION_AUTO_STOP_ENABLE, CLI_OPTION_STREAMING_SERVER, CLI_OPTION_SUNSHINE_IMAGE_REGISTRY, CLI_OPTION_SUNSHINE_IMAGE_TAG, CLI_OPTION_SUNSHINE_PASSWORD, CLI_OPTION_SUNSHINE_USERNAME, CliCommandGenerator, CreateCliArgs, UpdateCliArgs, CLI_OPTION_USE_LOCALE, CLI_OPTION_KEYBOARD_LAYOUT, CLI_OPTION_KEYBOARD_MODEL, CLI_OPTION_KEYBOARD_VARIANT, CLI_OPTION_KEYBOARD_OPTIONS, CLI_OPTION_DATA_DISK_SIZE, CLI_OPTION_ROOT_DISK_SIZE, BuildCreateCommandArgs, BuildUpdateCommandArgs, CLI_OPTION_DELETE_INSTANCE_SERVER_ON_STOP, CLI_OPTION_RATE_LIMIT_MAX_MBPS, CLI_OPTION_SUNSHINE_MAX_BITRATE_KBPS, CLI_OPTION_DATA_DISK_IOPS } from "../../cli/command";
 import { InteractiveInstanceInitializer } from "../../cli/initializer";
 import { RUN_COMMAND_CREATE, RUN_COMMAND_UPDATE } from "../../tools/analytics/events";
 import { InteractiveInstanceUpdater } from "../../cli/updater";
@@ -19,6 +20,7 @@ export interface ScalewayCreateCliArgs extends CreateCliArgs {
     rootDiskSize?: number
     imageId?: string
     dataDiskSize?: number
+    dataDiskIops?: number
     deleteInstanceServerOnStop?: boolean
 }
 
@@ -37,6 +39,7 @@ export class ScalewayInputPrompter extends AbstractInputPrompter<ScalewayCreateC
                 diskSizeGb: cliArgs.rootDiskSize,
                 imageId: cliArgs.imageId,
                 dataDiskSizeGb: cliArgs.dataDiskSize,
+                dataDiskIops: cliArgs.dataDiskIops,
                 deleteInstanceServerOnStop: cliArgs.deleteInstanceServerOnStop
             }
         }
@@ -65,6 +68,8 @@ export class ScalewayInputPrompter extends AbstractInputPrompter<ScalewayCreateC
         const instanceType = await this.instanceType(zonalScwClient, partialInput.provision?.instanceType)
         const rootDiskSizeGb = await this.rootDiskSize(partialInput.provision?.diskSizeGb)
         const dataDiskSizeGb = await this.dataDiskSize(partialInput.provision?.dataDiskSizeGb)
+        const availableIopsTiers = await zonalScwClient.listIopsTiers().catch(() => [])
+        const dataDiskIops = await this.dataDiskIops(dataDiskSizeGb, partialInput.provision?.dataDiskIops, availableIopsTiers)
 
         const scwInput: ScalewayInstanceInput = {
             configuration: commonInput.configuration,
@@ -77,6 +82,7 @@ export class ScalewayInputPrompter extends AbstractInputPrompter<ScalewayCreateC
                 instanceType: instanceType,
                 diskSizeGb: rootDiskSizeGb,
                 dataDiskSizeGb: dataDiskSizeGb,
+                dataDiskIops: dataDiskIops,
                 imageId: partialInput.provision?.imageId,
                 deleteInstanceServerOnStop: partialInput.provision?.deleteInstanceServerOnStop
             }
@@ -84,6 +90,28 @@ export class ScalewayInputPrompter extends AbstractInputPrompter<ScalewayCreateC
         
         return scwInput
         
+    }
+
+    private async dataDiskIops(dataDiskSizeGb: number, dataDiskIops?: number, tiers?: number[]): Promise<number | undefined> {
+        // If no data disk is requested, skip IOPS prompt
+        if (!dataDiskSizeGb || dataDiskSizeGb <= 0) {
+            return undefined
+        }
+        const allowed: number[] = (tiers && tiers.length > 0) ? [...tiers].sort((a,b)=>a-b) : [...SCALEWAY_FALLBACK_IOPS_TIERS]
+        if (dataDiskIops !== undefined) {
+            if (!allowed.includes(dataDiskIops)) {
+                console.warn(`⚠️ IOPS ${dataDiskIops} not in allowed tiers ${allowed.join(', ')}. Falling back to ${allowed[0]}.`)
+                return allowed[0] ?? SCALEWAY_DEFAULT_IOPS
+            }
+            return dataDiskIops
+        }
+        const choices = allowed.map((v: number) => ({ name: SCALEWAY_IOPS_LABELS[v] ?? `${v}`, value: v }))
+        const choice = await select<number>({
+            message: 'Data disk IOPS:',
+            choices,
+            loop: false
+        })
+        return choice
     }
 
     private async instanceType(client: ScalewayClient, instanceType?: string): Promise<string> {
@@ -212,6 +240,7 @@ export class ScalewayCliCommandGenerator extends CliCommandGenerator {
         return this.getBaseCreateCommand(CLOUDYPAD_PROVIDER_SCALEWAY)
             .addOption(CLI_OPTION_ROOT_DISK_SIZE)
             .addOption(CLI_OPTION_DATA_DISK_SIZE)
+            .addOption(CLI_OPTION_DATA_DISK_IOPS)
             .addOption(CLI_OPTION_STREAMING_SERVER)
             .addOption(CLI_OPTION_SUNSHINE_USERNAME)
             .addOption(CLI_OPTION_SUNSHINE_PASSWORD)
@@ -256,6 +285,7 @@ export class ScalewayCliCommandGenerator extends CliCommandGenerator {
         return this.getBaseUpdateCommand(CLOUDYPAD_PROVIDER_SCALEWAY)
             .addOption(CLI_OPTION_ROOT_DISK_SIZE)
             .addOption(CLI_OPTION_DATA_DISK_SIZE)
+            .addOption(CLI_OPTION_DATA_DISK_IOPS)
             .addOption(CLI_OPTION_SUNSHINE_USERNAME)
             .addOption(CLI_OPTION_SUNSHINE_PASSWORD)
             .addOption(CLI_OPTION_SUNSHINE_IMAGE_TAG)

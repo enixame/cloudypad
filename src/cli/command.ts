@@ -70,6 +70,8 @@ export const CLI_OPTION_ROOT_DISK_SIZE = new Option('--root-disk-size <size>', '
     .argParser(parseInt)
 export const CLI_OPTION_DATA_DISK_SIZE = new Option('--data-disk-size <size>', 'Data disk size in GB (for game data)')
     .argParser(parseInt)
+export const CLI_OPTION_DATA_DISK_IOPS = new Option('--data-disk-iops <iops>', 'IOPS for data disk. Allowed values depend on the provider. If not set, the provider default is used.')
+    .argParser(parseInt)
 
 export const CLI_OPTION_PUBLIC_IP_TYPE = new Option('--public-ip-type <type>', `Public IP type. Either ${PUBLIC_IP_TYPE_STATIC} or ${PUBLIC_IP_TYPE_DYNAMIC}`)
     .argParser(parsePublicIpType)

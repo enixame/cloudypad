@@ -1,5 +1,5 @@
 import { getLogger, Logger } from '../../log/utils'
-import { createClient, Instance, Vpc, Account, Marketplace, Profile } from '@scaleway/sdk'
+import { createClient, Instance, Vpc, Account, Marketplace, Profile, Block } from '@scaleway/sdk'
 import { loadProfileFromConfigurationFile } from '@scaleway/configuration-loader'
 
 interface StartStopActionOpts {
@@ -124,6 +124,7 @@ export class ScalewayClient {
     private readonly instanceClient: Instance.v1.API
     private readonly accountProjectClient: Account.v3.ProjectAPI
     private readonly marketplaceClient: Marketplace.v2.API
+    private readonly blockClient: Block.v1.API
 
     constructor(name: string, args: ScalewayClientArgs) {
         const profile = ScalewayClient.loadProfileFromConfigurationFile()
@@ -137,6 +138,23 @@ export class ScalewayClient {
         this.instanceClient = new Instance.v1.API(client)
         this.accountProjectClient = new Account.v3.ProjectAPI(client)
         this.marketplaceClient = new Marketplace.v2.API(client)
+    this.blockClient = new Block.v1.API(client)
+    }
+
+    /**
+     * List available IOPS tiers for Scaleway Block Storage in the configured zone.
+     * Returns unique max IOPS values (e.g. [5000, 15000]).
+     */
+    async listIopsTiers(): Promise<number[]> {
+        const res = await this.blockClient.listVolumeTypes()
+        const tiers = new Set<number>()
+        const volumeTypes = (res as { volumeTypes?: Array<{ iops?: { max?: number } }> }).volumeTypes ?? []
+        for (const t of volumeTypes) {
+            const iops = t?.iops
+            const max = typeof iops?.max === 'number' ? iops.max : undefined
+            if (max) tiers.add(max)
+        }
+        return Array.from(tiers).sort((a, b) => a - b)
     }
 
     async listInstances(): Promise<ScalewayVMDetails[]> {
