@@ -52,6 +52,27 @@ Cloudy Pad lets you **deploy a Cloud gaming instance on your own servers, machin
 
 [📜 See full documentation](https://docs.cloudypad.gg)
 
+## Snapshots (Scaleway data disk)
+
+Create a snapshot of your Scaleway data disk and optionally restore it later:
+
+- Create: `cloudypad snapshot scaleway nightly-2025-10-03`
+- Restore and auto-approve: `cloudypad snapshot scaleway nightly-2025-10-03 --restore --yes`
+
+Cost reduction options (Scaleway):
+
+- After restore, delete the previous data disk to save costs:
+  - `cloudypad snapshot scaleway nightly-2025-10-03 --restore --yes --delete-old-disk`
+- Archive-only mode: create snapshot and delete the current data disk (keeps only the snapshot):
+  - `cloudypad snapshot scaleway nightly-2025-10-03 --yes --delete-data-disk`
+
+Notes:
+
+- Snapshots incur additional cost on your cloud bill.
+- On successful restore, the snapshot is deleted automatically.
+- If restore fails at any step, the snapshot is kept for manual recovery and a rollback is attempted.
+- Destructive options `--delete-old-disk` and `--delete-data-disk` require `--yes` and will permanently delete volumes; use with caution.
+
 ## Have a question ? Found a bug ?
 
 - See [FAQ and known issues](https://docs.cloudypad.gg/usage/faq.md) or [create an issue](https://github.com/PierreBeucher/cloudypad/issues)

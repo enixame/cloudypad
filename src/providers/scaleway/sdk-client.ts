@@ -1,5 +1,5 @@
 import { getLogger, Logger } from '../../log/utils'
-import { createClient, Instance, Vpc, Account, Marketplace, Profile } from '@scaleway/sdk'
+import { createClient, Instance, Vpc, Account, Marketplace, Profile, Block } from '@scaleway/sdk'
 import { loadProfileFromConfigurationFile } from '@scaleway/configuration-loader'
 
 interface StartStopActionOpts {
@@ -122,6 +122,7 @@ export class ScalewayClient {
 
     private readonly logger: Logger
     private readonly instanceClient: Instance.v1.API
+    private readonly blockClient: Block.v1alpha1.API
     private readonly accountProjectClient: Account.v3.ProjectAPI
     private readonly marketplaceClient: Marketplace.v2.API
 
@@ -134,7 +135,8 @@ export class ScalewayClient {
             defaultRegion: args.region,
         })
         this.logger = getLogger(name)
-        this.instanceClient = new Instance.v1.API(client)
+    this.instanceClient = new Instance.v1.API(client)
+    this.blockClient = new Block.v1alpha1.API(client)
         this.accountProjectClient = new Account.v3.ProjectAPI(client)
         this.marketplaceClient = new Marketplace.v2.API(client)
     }
@@ -210,6 +212,35 @@ export class ScalewayClient {
         } catch (error) {
             throw new Error(`Failed to restart virtual machine ${serverId}`, { cause: error })
         }
+    }
+
+    async detachDataVolume(serverId: string, volumeId: string): Promise<void> {
+        this.logger.debug(`Detaching data volume ${volumeId} from server ${serverId}`)
+        type DetachAttachArgs = { serverId: string; volumeId: string }
+        type InstanceClientLike = { detachVolume: (args: DetachAttachArgs) => Promise<void> }
+        const client = this.instanceClient as unknown as InstanceClientLike
+        await client.detachVolume({ serverId, volumeId })
+    }
+
+    async attachDataVolume(serverId: string, volumeId: string): Promise<void> {
+        this.logger.debug(`Attaching data volume ${volumeId} to server ${serverId}`)
+        type DetachAttachArgs = { serverId: string; volumeId: string }
+        type InstanceClientLike = { attachVolume: (args: DetachAttachArgs) => Promise<void> }
+        const client = this.instanceClient as unknown as InstanceClientLike
+        await client.attachVolume({ serverId, volumeId })
+    }
+
+    async deleteBlockSnapshotByName(name: string): Promise<void> {
+        this.logger.debug(`Deleting block snapshot with name ${name}`)
+        const snaps = await this.blockClient.listSnapshots()
+        const snap = snaps.snapshots?.find(s => s.name === name)
+        if(!snap?.id) return
+        await this.blockClient.deleteSnapshot({ snapshotId: snap.id })
+    }
+
+    async deleteBlockVolume(volumeId: string): Promise<void> {
+        this.logger.debug(`Deleting block volume ${volumeId}`)
+        await this.blockClient.deleteVolume({ volumeId })
     }
 
     async getRawServerData(serverId: string): Promise<Instance.v1.Server | undefined> {

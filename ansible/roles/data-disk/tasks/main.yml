@@ -42,10 +42,17 @@
     msg: "No disk found matching data disk ID '{{ cloudypad_data_disk_id }}'"
   when: cloudypad_data_disk_name is not defined
 
-- name: Format Cloudy Pad data disk (ext4)
+- name: Check existing filesystem on data disk
+  command: blkid -o value -s TYPE {{ cloudypad_data_disk_path }}
+  register: cloudypad_data_disk_fs
+  failed_when: false
+  changed_when: false
+
+- name: Ensure Cloudy Pad data disk has ext4 filesystem
   filesystem:
     fstype: "ext4"
     dev: "{{ cloudypad_data_disk_path }}"
+  when: (cloudypad_data_disk_fs.stdout | default('')) == ''
 
 - name: Ensure Cloudy Pad data directory exists
   file:

@@ -18,6 +18,7 @@ import { CoreConfig } from '../core/config/interface';
 import { InstanceManagerBuilder } from '../core/manager-builder';
 import { InstanceManager } from '../core/manager';
 import { CLI_OPTION_RETRIES, CLI_OPTION_RETRY_DELAY } from './command';
+// provider-scoped snapshot subcommands are wired under a top-level 'snapshot' command
 
 const logger = getLogger("program")
 
@@ -37,7 +38,11 @@ export async function cleanupAndExit(exitCode: number){
 
 export function logFullError(e: unknown, prefix?: string){
     if(e instanceof Error){
-        prefix ? logger.error(prefix, e) : logger.error(e)
+        if(prefix){
+            logger.error(prefix, e)
+        } else {
+            logger.error(e)
+        }
         if(e.cause){
             logFullError(e.cause, "Caused by:")
         }
@@ -109,6 +114,12 @@ export function buildProgram(){
     updateCmd.addCommand(new ScalewayCliCommandGenerator().buildUpdateCommand({ coreConfig: coreConfig }))
     updateCmd.addCommand(new SshCliCommandGenerator().buildUpdateCommand({ coreConfig: coreConfig }))
     updateCmd.addCommand(new DummyCliCommandGenerator().buildUpdateCommand({ coreConfig: coreConfig }), { hidden: true })
+
+    // snapshot command with provider-specific subcommands
+    const snapshotCmd = program
+        .command('snapshot')
+        .description('Create or restore a data disk snapshot. See subcommands for each provider.')
+    snapshotCmd.addCommand(new ScalewayCliCommandGenerator().buildSnapshotCommand({ coreConfig }))
 
     program
         .command('list')

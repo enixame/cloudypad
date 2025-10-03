@@ -1,15 +1,18 @@
-import { ScalewayInstanceInput, ScalewayStateParser, ScalewayInstanceStateV1, ScalewayProvisionInputV1 } from "./state"
+import { ScalewayInstanceInput, ScalewayInstanceStateV1, ScalewayProvisionInputV1 } from "./state"
 import { CommonConfigurationInputV1, CommonInstanceInput } from "../../core/state/state"
 import { input, select } from '@inquirer/prompts';
 import { AbstractInputPrompter, PromptOptions } from "../../cli/prompter";
 import { ScalewayClient } from "./sdk-client";
 import { CLOUDYPAD_PROVIDER_SCALEWAY } from "../../core/const";
 import { PartialDeep } from "type-fest";
-import { CLI_OPTION_AUTO_STOP_TIMEOUT, CLI_OPTION_AUTO_STOP_ENABLE, CLI_OPTION_STREAMING_SERVER, CLI_OPTION_SUNSHINE_IMAGE_REGISTRY, CLI_OPTION_SUNSHINE_IMAGE_TAG, CLI_OPTION_SUNSHINE_PASSWORD, CLI_OPTION_SUNSHINE_USERNAME, CliCommandGenerator, CreateCliArgs, UpdateCliArgs, CLI_OPTION_DISK_SIZE, CLI_OPTION_USE_LOCALE, CLI_OPTION_KEYBOARD_LAYOUT, CLI_OPTION_KEYBOARD_MODEL, CLI_OPTION_KEYBOARD_VARIANT, CLI_OPTION_KEYBOARD_OPTIONS, CLI_OPTION_DATA_DISK_SIZE, CLI_OPTION_ROOT_DISK_SIZE, BuildCreateCommandArgs, BuildUpdateCommandArgs, CLI_OPTION_DELETE_INSTANCE_SERVER_ON_STOP, CLI_OPTION_RATE_LIMIT_MAX_MBPS, CLI_OPTION_SUNSHINE_MAX_BITRATE_KBPS } from "../../cli/command";
+import { CLI_OPTION_AUTO_STOP_TIMEOUT, CLI_OPTION_AUTO_STOP_ENABLE, CLI_OPTION_STREAMING_SERVER, CLI_OPTION_SUNSHINE_IMAGE_REGISTRY, CLI_OPTION_SUNSHINE_IMAGE_TAG, CLI_OPTION_SUNSHINE_PASSWORD, CLI_OPTION_SUNSHINE_USERNAME, CliCommandGenerator, CreateCliArgs, UpdateCliArgs, CLI_OPTION_USE_LOCALE, CLI_OPTION_KEYBOARD_LAYOUT, CLI_OPTION_KEYBOARD_MODEL, CLI_OPTION_KEYBOARD_VARIANT, CLI_OPTION_KEYBOARD_OPTIONS, CLI_OPTION_DATA_DISK_SIZE, CLI_OPTION_ROOT_DISK_SIZE, BuildCreateCommandArgs, BuildUpdateCommandArgs, CLI_OPTION_DELETE_INSTANCE_SERVER_ON_STOP, CLI_OPTION_RATE_LIMIT_MAX_MBPS, CLI_OPTION_SUNSHINE_MAX_BITRATE_KBPS } from "../../cli/command";
 import { InteractiveInstanceInitializer } from "../../cli/initializer";
 import { RUN_COMMAND_CREATE, RUN_COMMAND_UPDATE } from "../../tools/analytics/events";
 import { InteractiveInstanceUpdater } from "../../cli/updater";
 import { ScalewayProviderClient } from "./provider";
+import { Command } from "@commander-js/extra-typings";
+import { createDataDiskSnapshot, restoreDataDiskSnapshot, validateSnapshotName } from "../../infrastructure/scaleway/snapshot";
+import { CoreConfig } from "../../core/config/interface";
 
 export interface ScalewayCreateCliArgs extends CreateCliArgs {
     projectId?: string
@@ -285,6 +288,75 @@ export class ScalewayCliCommandGenerator extends CliCommandGenerator {
                     
                 } catch (error) {
                     throw new Error('Scaleway instance update failed', { cause: error })
+                }
+            })
+    }
+
+    buildSnapshotCommand(args: { coreConfig: CoreConfig }): Command<[string]> {
+        return new Command(CLOUDYPAD_PROVIDER_SCALEWAY)
+            .description(`Create or restore a data disk snapshot for ${CLOUDYPAD_PROVIDER_SCALEWAY}`)
+            .argument('<snapshotName>', 'Snapshot name (pattern: [a-z0-9-_], length ≤ 63)')
+            .requiredOption('--name <name>', 'Instance name')
+            .option('--restore', 'Restore the snapshot instead of creating one')
+            .option('--yes', 'Do not prompt for approval, automatically approve and continue')
+            .option('--delete-old-disk', 'After a successful restore, delete the previous data disk (requires --yes)')
+            .option('--delete-data-disk', 'On snapshot creation, delete the current data disk to archive and reduce costs (requires --yes)')
+            .action(async (snapshotName: string, opts: { name: string, restore?: boolean, yes?: boolean, deleteOldDisk?: boolean, deleteDataDisk?: boolean }) => {
+                this.analytics.sendEvent(opts.restore ? 'snapshot-restore' : 'snapshot-create', { provider: CLOUDYPAD_PROVIDER_SCALEWAY })
+
+                validateSnapshotName(snapshotName)
+
+                const provider = new ScalewayProviderClient({ config: args.coreConfig })
+                const state = await provider.getInstanceState(opts.name)
+
+                const provisionOut = state.provision.output
+                const provisionIn = state.provision.input
+                if (!provisionOut?.dataDiskId) {
+                    throw new Error('No data disk found on this instance. Configure a data disk first.')
+                }
+
+                if (!opts.restore) {
+                    const { snapshotId } = await createDataDiskSnapshot({
+                        instanceName: state.name,
+                        projectId: provisionIn.projectId,
+                        zone: provisionIn.zone,
+                        dataDiskId: provisionOut.dataDiskId,
+                        snapshotName,
+                    })
+                    console.info(`Snapshot created: ${snapshotId}`)
+                    if (opts.deleteDataDisk) {
+                        if (!opts.yes) {
+                            console.warn("--delete-data-disk requested but --yes not provided; skipping data disk deletion. Re-run with --yes to confirm.")
+                        } else {
+                            const { snapshotAndDeleteDataDisk } = await import('../../infrastructure/scaleway/snapshot')
+                            await snapshotAndDeleteDataDisk({
+                                instanceName: state.name,
+                                projectId: provisionIn.projectId,
+                                zone: provisionIn.zone,
+                                dataDiskId: provisionOut.dataDiskId,
+                                snapshotName,
+                                instanceServerId: provisionOut.instanceServerId!,
+                            })
+                        }
+                    }
+                } else {
+                    await restoreDataDiskSnapshot({
+                        instanceName: state.name,
+                        projectId: provisionIn.projectId,
+                        zone: provisionIn.zone,
+                        instanceServerId: provisionOut.instanceServerId!,
+                        oldDataDiskId: provisionOut.dataDiskId,
+                        snapshotName,
+                        ssh: provisionIn.ssh,
+                        host: provisionOut.host,
+                        publicIPv4: provisionOut.publicIPv4,
+                        autoApprove: opts.yes === true,
+                        deleteOldDisk: (opts.deleteOldDisk === true) && (opts.yes === true),
+                    })
+                    console.info(`Restored snapshot '${snapshotName}' on instance ${state.name}`)
+                    if(opts.deleteOldDisk && !opts.yes){
+                        console.warn("--delete-old-disk requested but --yes not provided; skipping old disk deletion. Re-run with --yes to confirm.")
+                    }
                 }
             })
     }
