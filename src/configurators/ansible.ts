@@ -80,8 +80,19 @@ export class AnsibleConfigurator<ST extends InstanceStateV1> extends AbstractIns
         
         const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cloudypad-'));
         const inventoryPath = path.join(tmpDir, 'inventory.yml');
+        const knownHostsPath = path.join(tmpDir, 'known_hosts')
 
         this.logger.debug(`Writing inventory file at ${inventoryPath}`)
+
+        // Create a per-run known_hosts file and set SSH to accept-new for first contact
+        fs.writeFileSync(knownHostsPath, '', 'utf8')
+
+        // Override SSH common args with accept-new + our temporary known_hosts
+        const inv = jsonObjectInventory as { all?: { hosts?: Record<string, Record<string, unknown>> } }
+        const hostEntry = inv.all?.hosts?.[this.args.instanceName]
+        if (hostEntry) {
+            hostEntry['ansible_ssh_common_args'] = `-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=${knownHostsPath}`
+        }
 
         fs.writeFileSync(inventoryPath, yaml.stringify(jsonObjectInventory), 'utf8')
 
@@ -106,9 +117,8 @@ export class AnsibleConfigurator<ST extends InstanceStateV1> extends AbstractIns
                         ansible_user: this.args.provisionInput.ssh.user,
                         ansible_ssh_private_key_file: sshAuth.privateKeyPath,
                         ansible_password: sshAuth.password,
-                        // Avoid failures when the instance host key changes after reprovision/restore
-                        // Accept connections without strict host key checks and ignore persisted known_hosts
-                        ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null",
+                        // ansible_ssh_common_args is injected at write time with StrictHostKeyChecking=accept-new
+                        // and a per-run known_hosts (see writeTempInventory)
 
                         cloudypad_provider: this.args.provider,
 
