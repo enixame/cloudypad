@@ -97,15 +97,54 @@ export async function snapshotAndDeleteDataDisk(args: ArchiveAfterSnapshotArgs):
 
     // 2) Stop, detach, delete the data disk, start back
     const scwClient = new ScalewayClient('scw-archive', { projectId: args.projectId, zone: args.zone })
+    // Stop and detach
     try {
         await scwClient.stopInstance(args.instanceServerId, { wait: true, waitTimeoutSeconds: 300 })
-        await scwClient.detachDataVolume(args.instanceServerId, args.dataDiskId)
-        await scwClient.deleteBlockVolume(args.dataDiskId)
-        await scwClient.startInstance(args.instanceServerId, { wait: true, waitTimeoutSeconds: 300 })
-        logger.info(`Deleted data disk ${args.dataDiskId} after snapshot ${snap.snapshotId}`)
+        try {
+            await scwClient.detachDataVolume(args.instanceServerId, args.dataDiskId)
+        } catch (eDet: unknown) {
+            const err = eDet as Error
+            const msg = String(err.message || eDet)
+            if (msg.includes('ResourceNotFoundError') || msg.includes('instance_volume') || msg.includes('404')) {
+                logger.warn(`Detach reported volume not attached; continuing deletion. Details: ${msg}`)
+            } else {
+                throw err
+            }
+        }
     } catch (e) {
-        logger.error('Failed to delete data disk after snapshot. Instance may be running with disk still attached.', e)
-        // Do not rollback snapshot creation; user can manage disk manually
+        logger.error('Failed to stop and/or detach data disk before deletion.', e)
+    }
+
+    // Delete with retry on transient in_use/protected_resource errors
+    {
+        const maxRetries = 10
+        const delayMs = 3000
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                await scwClient.deleteBlockVolume(args.dataDiskId)
+                logger.info(`Deleted data disk ${args.dataDiskId} after snapshot ${snap.snapshotId}`)
+                break
+            } catch (eDel: unknown) {
+                const err = eDel as Error
+                const msg = String(err.message || eDel)
+                if (msg.includes('in_use') || msg.includes('protected_resource') || msg.includes('412')) {
+                    if (attempt < maxRetries) {
+                        logger.warn(`Volume ${args.dataDiskId} still in use (attempt ${attempt}/${maxRetries}). Retrying in ${Math.round(delayMs/1000)}s...`)
+                        await new Promise(r => setTimeout(r, delayMs))
+                        continue
+                    }
+                }
+                logger.error(`Failed to delete data disk ${args.dataDiskId} after ${attempt} attempts. You may delete it manually later.`, err)
+                break
+            }
+        }
+    }
+
+    // Always try to start instance back
+    try {
+        await scwClient.startInstance(args.instanceServerId, { wait: true, waitTimeoutSeconds: 300 })
+    } catch (e) {
+        logger.error('Failed to start instance after archive flow; please start it manually.', e)
     }
 
     return snap
@@ -203,12 +242,47 @@ export async function restoreDataDiskSnapshot(args: RestoreSnapshotArgs): Promis
     if (args.deleteOldDisk) {
         try {
             await scwClient.stopInstance(args.instanceServerId, { wait: true, waitTimeoutSeconds: 300 })
-            await scwClient.detachDataVolume(args.instanceServerId, args.oldDataDiskId)
-            await scwClient.deleteBlockVolume(args.oldDataDiskId)
-            await scwClient.startInstance(args.instanceServerId, { wait: true, waitTimeoutSeconds: 300 })
-            logger.info(`Deleted old data disk ${args.oldDataDiskId}`)
+            try {
+                await scwClient.detachDataVolume(args.instanceServerId, args.oldDataDiskId)
+            } catch (eDet: unknown) {
+                const err = eDet as Error
+                const msg = String(err.message || eDet)
+                if (msg.includes('ResourceNotFoundError') || msg.includes('instance_volume') || msg.includes('404')) {
+                    logger.warn(`Old disk detach reported not attached; continuing deletion. Details: ${msg}`)
+                } else {
+                    throw err
+                }
+            }
+            // Delete with retry loop
+            const maxRetries = 10
+            const delayMs = 3000
+            for (let attempt = 1; attempt <= maxRetries; attempt++) {
+                try {
+                    await scwClient.deleteBlockVolume(args.oldDataDiskId)
+                    logger.info(`Deleted old data disk ${args.oldDataDiskId}`)
+                    break
+                } catch (eDel: unknown) {
+                    const err = eDel as Error
+                    const msg = String(err.message || eDel)
+                    if (msg.includes('in_use') || msg.includes('protected_resource') || msg.includes('412')) {
+                        if (attempt < maxRetries) {
+                            logger.warn(`Old volume ${args.oldDataDiskId} still in use (attempt ${attempt}/${maxRetries}). Retrying in ${Math.round(delayMs/1000)}s...`)
+                            await new Promise(r => setTimeout(r, delayMs))
+                            continue
+                        }
+                    }
+                    logger.error(`Failed to delete old data disk ${args.oldDataDiskId} after ${attempt} attempts.`, err)
+                    break
+                }
+            }
         } catch (eDel) {
             logger.error(`Failed to delete old data disk ${args.oldDataDiskId}. You may delete it manually later.`, eDel)
+        } finally {
+            try {
+                await scwClient.startInstance(args.instanceServerId, { wait: true, waitTimeoutSeconds: 300 })
+            } catch (e) {
+                logger.error('Failed to start instance after old disk deletion flow; please start it manually.', e)
+            }
         }
     }
 

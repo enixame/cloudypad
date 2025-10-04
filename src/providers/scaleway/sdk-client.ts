@@ -166,9 +166,18 @@ export class ScalewayClient {
         const waitTimeout = opts?.waitTimeoutSeconds || DEFAULT_START_STOP_OPTION_WAIT_TIMEOUT
 
         try {
+            const current = await this.getInstanceStatus(serverId)
+            if (current === ScalewayServerState.Running || current === ScalewayServerState.Starting) {
+                this.logger.debug(`VM ${serverId} already ${current}, skipping power on`)
+                if (wait) {
+                    await this.withTimeout(this.waitForStatus(serverId, ScalewayServerState.Running), waitTimeout * 1000)
+                }
+                return
+            }
+
             this.logger.debug(`Starting Scaleway virtual machine: ${serverId}`)
             await this.instanceClient.serverAction({ serverId, action: ServerActionEnum.PowerOn })
-    
+
             if (wait) {
                 this.logger.debug(`Waiting for virtual machine ${serverId} to start`)
                 await this.withTimeout(this.waitForStatus(serverId, ScalewayServerState.Running), waitTimeout * 1000)
@@ -183,6 +192,15 @@ export class ScalewayClient {
         const waitTimeout = opts?.waitTimeoutSeconds || DEFAULT_START_STOP_OPTION_WAIT_TIMEOUT
 
         try {
+            const current = await this.getInstanceStatus(serverId)
+            if (current === ScalewayServerState.Stopped || current === ScalewayServerState.Stopping) {
+                this.logger.debug(`VM ${serverId} already ${current}, skipping power off`)
+                if (wait) {
+                    await this.withTimeout(this.waitForStatus(serverId, ScalewayServerState.Stopped), waitTimeout * 1000)
+                }
+                return
+            }
+
             this.logger.debug(`Stopping Scaleway virtual machine: ${serverId}`)
             await this.instanceClient.serverAction({ serverId, action: ServerActionEnum.PowerOff })
 
@@ -214,20 +232,40 @@ export class ScalewayClient {
         }
     }
 
-    async detachDataVolume(serverId: string, volumeId: string): Promise<void> {
-        this.logger.debug(`Detaching data volume ${volumeId} from server ${serverId}`)
-        type DetachAttachArgs = { serverId: string; volumeId: string }
-        type InstanceClientLike = { detachVolume: (args: DetachAttachArgs) => Promise<void> }
-        const client = this.instanceClient as unknown as InstanceClientLike
-        await client.detachVolume({ serverId, volumeId })
+    private normalizeUuid(id: string | undefined): string | undefined {
+        if (!id) return undefined
+        return id.includes('/') ? (id.split('/').pop() as string) : id
+    }
+
+    async detachDataVolume(serverId: string, blockVolumeId: string): Promise<void> {
+        const volumeId = this.normalizeUuid(blockVolumeId) as string
+        this.logger.debug(`Detaching block volume ${volumeId} from server ${serverId}`)
+        // Use official SDK method
+        const client = this.instanceClient as unknown as { detachServerVolume: (args: { serverId: string; volumeId: string }) => Promise<unknown>, getVolume: (args: { volumeId: string }) => Promise<{ volume?: { server?: unknown } }> }
+        await client.detachServerVolume({ serverId, volumeId })
+        // Best-effort wait until detached to avoid transient in_use on deletion
+        const timeoutMs = 60_000
+        const start = Date.now()
+        while (true) {
+            try {
+                const vol = await client.getVolume({ volumeId })
+                if (!vol?.volume?.server) break
+            } catch {
+                // ignore lookup errors transiently
+                break
+            }
+            if (Date.now() - start > timeoutMs) {
+                this.logger.warn(`Timeout waiting for volume ${volumeId} to detach from server ${serverId}; proceeding anyway`)
+                break
+            }
+            await new Promise(r => setTimeout(r, 2000))
+        }
     }
 
     async attachDataVolume(serverId: string, volumeId: string): Promise<void> {
-        this.logger.debug(`Attaching data volume ${volumeId} to server ${serverId}`)
-        type DetachAttachArgs = { serverId: string; volumeId: string }
-        type InstanceClientLike = { attachVolume: (args: DetachAttachArgs) => Promise<void> }
-        const client = this.instanceClient as unknown as InstanceClientLike
-        await client.attachVolume({ serverId, volumeId })
+        this.logger.debug(`Attaching block volume ${volumeId} to server ${serverId}`)
+        const client = this.instanceClient as unknown as { attachServerVolume: (args: { serverId: string; volumeId: string }) => Promise<unknown> }
+        await client.attachServerVolume({ serverId, volumeId })
     }
 
     async deleteBlockSnapshotByName(name: string): Promise<void> {

@@ -53,7 +53,7 @@ const LOG_ON_OUTPUT_COLOR = "always"
  * Implement tries to be lock-safe: when running on a stack that is locked, it will retry up to a max number of times with a delay between retries.
  * 
  */
-export abstract class InstancePulumiClient<ConfigType extends Object, OutputType> {
+export abstract class InstancePulumiClient<ConfigType extends object, OutputType> {
 
     readonly program: PulumiFn
     readonly projectName: string
@@ -126,7 +126,23 @@ export abstract class InstancePulumiClient<ConfigType extends Object, OutputType
             fs.mkdirSync(backendUrlPath, { recursive: true })
         }
 
-        const workpaceOpts: LocalWorkspaceOptions | undefined = this.workspaceOptions
+        // Ensure Pulumi env vars are set for non-Nix users: provide a default passphrase when none is supplied
+        const mergedEnv: Record<string, string> = {
+            ...(this.workspaceOptions?.envVars ?? {})
+        }
+        const hasPassphrase = !!mergedEnv.PULUMI_CONFIG_PASSPHRASE
+            || !!mergedEnv.PULUMI_CONFIG_PASSPHRASE_FILE
+            || !!process.env.PULUMI_CONFIG_PASSPHRASE
+            || !!process.env.PULUMI_CONFIG_PASSPHRASE_FILE
+        if (!hasPassphrase) {
+            // Default passphrase for local file backend secrets; acceptable for ephemeral local stacks
+            mergedEnv.PULUMI_CONFIG_PASSPHRASE = 'cloudypad'
+        }
+
+        const workpaceOpts: LocalWorkspaceOptions | undefined = {
+            ...this.workspaceOptions,
+            envVars: mergedEnv
+        }
 
         const pulumiArgs: InlineProgramArgs = {
             stackName: this.stackName,
