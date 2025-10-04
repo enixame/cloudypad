@@ -76,7 +76,7 @@ export class AnsibleConfigurator<ST extends InstanceStateV1> extends AbstractIns
      * @param jsonObjectInventory Inventory content as a JSON object
      * @returns Path to the inventory file
      */
-    public async writeTempInventory(jsonObjectInventory: any): Promise<string> {
+    public async writeTempInventory(jsonObjectInventory: Record<string, unknown>): Promise<string> {
         
         const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cloudypad-'));
         const inventoryPath = path.join(tmpDir, 'inventory.yml');
@@ -92,7 +92,7 @@ export class AnsibleConfigurator<ST extends InstanceStateV1> extends AbstractIns
      * Generate inventory content for Ansible as a JSON object
      * @returns Inventory content as a JSON object
      */
-        public async generateInventoryObject(): Promise<any>   {
+    public async generateInventoryObject(): Promise<Record<string, unknown>>   {
 
         const sshAuth = new SshKeyLoader().getSshAuth(this.args.provisionInput.ssh)
 
@@ -106,6 +106,9 @@ export class AnsibleConfigurator<ST extends InstanceStateV1> extends AbstractIns
                         ansible_user: this.args.provisionInput.ssh.user,
                         ansible_ssh_private_key_file: sshAuth.privateKeyPath,
                         ansible_password: sshAuth.password,
+                        // Avoid failures when the instance host key changes after reprovision/restore
+                        // Accept connections without strict host key checks and ignore persisted known_hosts
+                        ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null",
 
                         cloudypad_provider: this.args.provider,
 

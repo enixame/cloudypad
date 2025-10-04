@@ -176,7 +176,19 @@ export class ScalewayClient {
             }
 
             this.logger.debug(`Starting Scaleway virtual machine: ${serverId}`)
-            await this.instanceClient.serverAction({ serverId, action: ServerActionEnum.PowerOn })
+            try {
+                await this.instanceClient.serverAction({ serverId, action: ServerActionEnum.PowerOn })
+            } catch (e: unknown) {
+                const msg = String((e as Error).message || e)
+                if (msg.includes('resource_not_usable') || msg.includes('All volumes attached to the server must be available')) {
+                    this.logger.warn(`Server ${serverId} not startable yet (volumes not usable). Waiting for attached volumes to be in_use...`)
+                    await this.waitForAllVolumesUsable(serverId, 120_000)
+                    // single retry
+                    await this.instanceClient.serverAction({ serverId, action: ServerActionEnum.PowerOn })
+                } else {
+                    throw e
+                }
+            }
 
             if (wait) {
                 this.logger.debug(`Waiting for virtual machine ${serverId} to start`)
@@ -241,15 +253,14 @@ export class ScalewayClient {
         const volumeId = this.normalizeUuid(blockVolumeId) as string
         this.logger.debug(`Detaching block volume ${volumeId} from server ${serverId}`)
         // Use official SDK method
-        const client = this.instanceClient as unknown as { detachServerVolume: (args: { serverId: string; volumeId: string }) => Promise<unknown>, getVolume: (args: { volumeId: string }) => Promise<{ volume?: { server?: unknown } }> }
-        await client.detachServerVolume({ serverId, volumeId })
-        // Best-effort wait until detached to avoid transient in_use on deletion
+        await (this.instanceClient as unknown as { detachServerVolume: (args: { serverId: string; volumeId: string }) => Promise<unknown> }).detachServerVolume({ serverId, volumeId })
+        // Best-effort wait until detached (Block API status not 'in_use') to avoid transient in_use on deletion
         const timeoutMs = 60_000
         const start = Date.now()
         while (true) {
             try {
-                const vol = await client.getVolume({ volumeId })
-                if (!vol?.volume?.server) break
+                const vol = await (this.blockClient as unknown as { getVolume: (args: { volumeId: string }) => Promise<{ status?: string }> }).getVolume({ volumeId })
+                if (vol && vol.status && vol.status !== 'in_use') break
             } catch {
                 // ignore lookup errors transiently
                 break
@@ -263,9 +274,40 @@ export class ScalewayClient {
     }
 
     async attachDataVolume(serverId: string, volumeId: string): Promise<void> {
-        this.logger.debug(`Attaching block volume ${volumeId} to server ${serverId}`)
-        const client = this.instanceClient as unknown as { attachServerVolume: (args: { serverId: string; volumeId: string }) => Promise<unknown> }
-        await client.attachServerVolume({ serverId, volumeId })
+        const volId = this.normalizeUuid(volumeId) as string
+        this.logger.debug(`Attaching block volume ${volId} to server ${serverId}`)
+        // Determine required instance volumeType based on Block Storage class
+        let volumeTypeForInstance: 'b_ssd' | 'sbs_volume' = ScalewayVolumeType.BLOCK_SSD as unknown as 'b_ssd'
+        try {
+            const vol = await (this.blockClient as unknown as { getVolume: (args: { volumeId: string }) => Promise<{ specs?: { class?: string } }> }).getVolume({ volumeId: volId })
+            const klass = vol?.specs?.class
+            if (klass === 'sbs') {
+                volumeTypeForInstance = 'sbs_volume'
+            } else {
+                volumeTypeForInstance = 'b_ssd'
+            }
+            this.logger.debug(`Detected block volume class '${klass ?? 'unknown'}' -> instance volume_type '${volumeTypeForInstance}'`)
+        } catch (e) {
+            this.logger.warn(`Could not detect block volume class for ${volId}; defaulting to 'b_ssd'. ${(e as Error).message}`)
+        }
+        const client = this.instanceClient as unknown as { attachServerVolume: (args: { serverId: string; volumeId: string; volumeType: 'b_ssd' | 'sbs_volume' }) => Promise<unknown> }
+        await client.attachServerVolume({ serverId, volumeId: volId, volumeType: volumeTypeForInstance })
+        // Wait until volume shows as in_use before attempting to start the server
+        const timeoutMs = 60_000
+        const start = Date.now()
+        while (true) {
+            try {
+                const vol = await (this.blockClient as unknown as { getVolume: (args: { volumeId: string }) => Promise<{ status?: string }> }).getVolume({ volumeId: volId })
+                if (vol && vol.status === 'in_use') break
+            } catch {
+                // ignore transient lookup errors
+            }
+            if (Date.now() - start > timeoutMs) {
+                this.logger.warn(`Timeout waiting for volume ${volId} to attach to server ${serverId}; proceeding anyway`)
+                break
+            }
+            await new Promise(r => setTimeout(r, 2000))
+        }
     }
 
     async deleteBlockSnapshotByName(name: string): Promise<void> {
@@ -363,6 +405,36 @@ export class ScalewayClient {
                 return
             }
             await new Promise(resolve => setTimeout(resolve, 5000))
+        }
+    }
+
+    private async waitForAllVolumesUsable(serverId: string, timeoutMs: number): Promise<void> {
+        const start = Date.now()
+        while (true) {
+            try {
+                const server = await this.instanceClient.getServer({ serverId })
+                const vols = (server as unknown as { server?: { volumes?: Record<string, { volume?: { id?: string } }> } }).server?.volumes
+                const volIds = vols ? Object.values(vols).map(v => (v.volume?.id ? this.normalizeUuid(v.volume.id) : undefined)).filter(Boolean) as string[] : []
+                if (volIds.length === 0) return
+                let allInUse = true
+                for (const vid of volIds) {
+                    try {
+                        const vol = await (this.blockClient as unknown as { getVolume: (args: { volumeId: string }) => Promise<{ status?: string }> }).getVolume({ volumeId: vid })
+                        if (!vol || vol.status !== 'in_use') {
+                            allInUse = false
+                            break
+                        }
+                    } catch {
+                        allInUse = false
+                        break
+                    }
+                }
+                if (allInUse) return
+            } catch {
+                // ignore transient errors
+            }
+            if (Date.now() - start > timeoutMs) return
+            await new Promise(r => setTimeout(r, 2000))
         }
     }
 

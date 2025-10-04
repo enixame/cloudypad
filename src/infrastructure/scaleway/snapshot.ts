@@ -4,6 +4,8 @@ import { InstancePulumiClient } from '../../tools/pulumi/client'
 import { getLogger } from '../../log/utils'
 import { ScalewayClient } from '../../providers/scaleway/sdk-client'
 import { AnsibleConfigurator } from '../../configurators/ansible'
+import { createClient, Block } from '@scaleway/sdk'
+import { loadProfileFromConfigurationFile } from '@scaleway/configuration-loader'
 import { InstanceStateV1 } from '../../core/state/state'
 
 export function validateSnapshotName(name: string){
@@ -151,11 +153,11 @@ export async function snapshotAndDeleteDataDisk(args: ArchiveAfterSnapshotArgs):
 }
 
 // Pulumi program to create a new Volume from an existing Snapshot
-function programCreateVolumeFromSnapshot(params: { stack: string, snapshotName: string }){
+function programCreateVolumeFromSnapshot(params: { stack: string, snapshotName: string, iops?: number }){
     return async () => {
         const volName = computeRestoredVolumeResourceName(params.stack, params.snapshotName)
         const snap = await scw.block.getSnapshot({ name: computeSnapshotResourceName(params.stack, params.snapshotName) })
-        const vol = new scw.block.Volume(volName, { name: volName, iops: 5000, snapshotId: snap.id, tags: ['cloudypad', `stack:${params.stack}`, 'data-disk', `restoredFrom:${params.snapshotName}`] })
+        const vol = new scw.block.Volume(volName, { name: volName, iops: params.iops ?? 5000, snapshotId: snap.id, tags: ['cloudypad', `stack:${params.stack}`, 'data-disk', `restoredFrom:${params.snapshotName}`] })
         return { newVolumeId: vol.id }
     }
 }
@@ -185,8 +187,20 @@ export async function restoreDataDiskSnapshot(args: RestoreSnapshotArgs): Promis
     // Note: SDK lacks direct snapshot list in our wrapper; rely on Pulumi creation to error if not found when using id
 
     // Create new volume from snapshot
+    // Try to keep same IOPS as the original data disk if possible
+    let desiredIops: number | undefined = undefined
+    try {
+        const client = createClient({ ...loadProfileFromConfigurationFile(), defaultZone: args.zone })
+        const scwBlock = new Block.v1alpha1.API(client)
+    const volInfo = await scwBlock.getVolume({ volumeId: args.oldDataDiskId })
+    desiredIops = (volInfo.specs?.perfIops as number | undefined) || undefined
+        if (desiredIops) logger.debug(`Detected original data disk perfIops=${desiredIops}`)
+    } catch (e) {
+        logger.warn(`Could not detect original data disk IOPS; defaulting to 5000. ${String((e as Error).message)}`)
+    }
+
     const volClient = new RestoreVolumeClient({
-        program: programCreateVolumeFromSnapshot({ stack: args.instanceName, snapshotName: args.snapshotName }),
+        program: programCreateVolumeFromSnapshot({ stack: args.instanceName, snapshotName: args.snapshotName, iops: desiredIops }),
         projectName: 'CloudyPad-Scaleway-RestoreVolume',
         stackName: args.instanceName,
     })
@@ -200,8 +214,18 @@ export async function restoreDataDiskSnapshot(args: RestoreSnapshotArgs): Promis
     // Safer path: stop instance for storage operations
     await scwClient.stopInstance(args.instanceServerId, { wait: true, waitTimeoutSeconds: 300 })
 
-    // Detach old data disk then attach new one
-    await scwClient.detachDataVolume(args.instanceServerId, args.oldDataDiskId)
+    // Detach old data disk then attach new one (tolerate when already not attached)
+    try {
+        await scwClient.detachDataVolume(args.instanceServerId, args.oldDataDiskId)
+    } catch (eDet: unknown) {
+        const err = eDet as Error
+        const msg = String(err.message || eDet)
+        if (msg.includes('not attached to this server') || msg.includes('InvalidArgumentsError') || msg.includes('ResourceNotFoundError') || msg.includes('404')) {
+            logger.warn(`Old data disk ${args.oldDataDiskId} reported as not attached; continuing restore. Details: ${msg}`)
+        } else {
+            throw err
+        }
+    }
     await scwClient.attachDataVolume(args.instanceServerId, newVolumeId)
 
     // Start instance again to let OS see the new disk
@@ -229,7 +253,16 @@ export async function restoreDataDiskSnapshot(args: RestoreSnapshotArgs): Promis
         // rollback: stop, swap back disks, start
         try {
             await scwClient.stopInstance(args.instanceServerId, { wait: true, waitTimeoutSeconds: 300 })
-            await scwClient.detachDataVolume(args.instanceServerId, newVolumeId)
+            try {
+                await scwClient.detachDataVolume(args.instanceServerId, newVolumeId)
+            } catch (eDet: unknown) {
+                const msg = String((eDet as Error).message || eDet)
+                if (msg.includes('not attached') || msg.includes('InvalidArgumentsError') || msg.includes('ResourceNotFoundError') || msg.includes('404')) {
+                    logger.warn(`New volume ${newVolumeId} not attached during rollback; continuing attach of old disk`)
+                } else {
+                    throw eDet
+                }
+            }
             await scwClient.attachDataVolume(args.instanceServerId, args.oldDataDiskId)
             await scwClient.startInstance(args.instanceServerId, { wait: true, waitTimeoutSeconds: 300 })
         } catch (e2) {
