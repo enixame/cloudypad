@@ -12,6 +12,8 @@ import { InteractiveInstanceUpdater } from "../../cli/updater";
 import { ScalewayProviderClient } from "./provider";
 import { Command } from "@commander-js/extra-typings";
 import { createDataDiskSnapshot, restoreDataDiskSnapshot, validateSnapshotName } from "../../infrastructure/scaleway/snapshot";
+import { createClient, Block } from '@scaleway/sdk'
+import { loadProfileFromConfigurationFile } from '@scaleway/configuration-loader'
 import { CoreConfig } from "../../core/config/interface";
 
 export interface ScalewayCreateCliArgs extends CreateCliArgs {
@@ -308,19 +310,49 @@ export class ScalewayCliCommandGenerator extends CliCommandGenerator {
 
                 const provider = new ScalewayProviderClient({ config: args.coreConfig })
                 const state = await provider.getInstanceState(opts.name)
+                const stateWriter = provider.getStateWriter()
 
                 const provisionOut = state.provision.output
                 const provisionIn = state.provision.input
-                if (!provisionOut?.dataDiskId) {
-                    throw new Error('No data disk found on this instance. Configure a data disk first.')
+                if (!provisionOut) throw new Error('Instance is not provisioned yet; provision output missing in state')
+                if (!provisionOut.instanceServerId) throw new Error('Invalid state: instanceServerId missing')
+                if (!provisionOut.host) throw new Error('Invalid state: host missing from provision output')
+                // For snapshot creation we need a data disk; for restore we can proceed without
+                // Try to verify existing ID or discover one; but allow undefined when --restore is set
+                let currentDataDiskId = provisionOut.dataDiskId
+                const scw = new (await import('./sdk-client')).ScalewayClient('scw-discover', { projectId: provisionIn.projectId, zone: provisionIn.zone })
+                const verifyOrDiscover = async (): Promise<string | undefined> => {
+                    const tryId = currentDataDiskId
+                    if (tryId) {
+                        try {
+                            const client = createClient({ ...loadProfileFromConfigurationFile(), defaultZone: provisionIn.zone })
+                            const block = new Block.v1alpha1.API(client)
+                            await block.getVolume({ volumeId: tryId })
+                            return tryId
+                        } catch {
+                            // fallthrough to discovery
+                        }
+                    }
+                    const discovered = await scw.findCurrentDataDiskId(provisionOut.instanceServerId!)
+                    if (discovered) {
+                        console.warn(`Using attached data disk ${discovered} (state had ${tryId ?? 'none'}). Updating state.`)
+                        await stateWriter.setProvisionOutput(state.name, { ...provisionOut, dataDiskId: discovered })
+                        currentDataDiskId = discovered
+                        return discovered
+                    }
+                    return undefined
                 }
+                const dataDiskId = await verifyOrDiscover()
 
                 if (!opts.restore) {
+                    if (!dataDiskId) {
+                        throw new Error('No data disk found on this instance. Configure a data disk first.')
+                    }
                     const { snapshotId } = await createDataDiskSnapshot({
                         instanceName: state.name,
                         projectId: provisionIn.projectId,
                         zone: provisionIn.zone,
-                        dataDiskId: provisionOut.dataDiskId,
+                        dataDiskId: dataDiskId,
                         snapshotName,
                     })
                     console.info(`Snapshot created: ${snapshotId}`)
@@ -333,19 +365,22 @@ export class ScalewayCliCommandGenerator extends CliCommandGenerator {
                                 instanceName: state.name,
                                 projectId: provisionIn.projectId,
                                 zone: provisionIn.zone,
-                                dataDiskId: provisionOut.dataDiskId,
+                                dataDiskId: dataDiskId,
                                 snapshotName,
                                 instanceServerId: provisionOut.instanceServerId!,
                             })
+                            // Clear dataDiskId in state since we've deleted it to archive costs
+                            const cleared = { ...provisionOut, dataDiskId: undefined }
+                            await stateWriter.setProvisionOutput(state.name, cleared)
                         }
                     }
                 } else {
-                    await restoreDataDiskSnapshot({
+                    const { newDataDiskId } = await restoreDataDiskSnapshot({
                         instanceName: state.name,
                         projectId: provisionIn.projectId,
                         zone: provisionIn.zone,
                         instanceServerId: provisionOut.instanceServerId!,
-                        oldDataDiskId: provisionOut.dataDiskId,
+                        oldDataDiskId: dataDiskId,
                         snapshotName,
                         ssh: provisionIn.ssh,
                         host: provisionOut.host,
@@ -354,6 +389,9 @@ export class ScalewayCliCommandGenerator extends CliCommandGenerator {
                         deleteOldDisk: (opts.deleteOldDisk === true) && (opts.yes === true),
                     })
                     console.info(`Restored snapshot '${snapshotName}' on instance ${state.name}`)
+                    // Persist new data disk id in state
+                    const updated = { ...provisionOut, dataDiskId: newDataDiskId }
+                    await stateWriter.setProvisionOutput(state.name, updated)
                     if(opts.deleteOldDisk && !opts.yes){
                         console.warn("--delete-old-disk requested but --yes not provided; skipping old disk deletion. Re-run with --yes to confirm.")
                     }

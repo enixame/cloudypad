@@ -328,6 +328,43 @@ export class ScalewayClient {
         return server.server
     }
 
+    /**
+     * Try to discover the currently attached data disk ID on a server by inspecting its volumes
+     * and returning the first volume that is not the root volume.
+     */
+    async findCurrentDataDiskId(serverId: string): Promise<string | undefined> {
+        const srv = await this.getRawServerData(serverId)
+        if (!srv) return undefined
+        // Normalize helpers
+        const normalize = (id?: string) => (id ? (id.includes('/') ? id.split('/').pop() as string : id) : undefined)
+        const volumesObj = (srv as unknown as { volumes?: Record<string, { id?: string; volumeId?: string }> }).volumes || {}
+        // Determine root volume id: prefer explicit key '0' in volumes map, else fallback to rootVolume.volumeId
+        const rootFromMap = volumesObj['0'] ? normalize(volumesObj['0'].id || volumesObj['0'].volumeId) : undefined
+        const rootFromField = normalize((srv as unknown as { rootVolume?: { volumeId?: string } }).rootVolume?.volumeId)
+        const rootVolId = rootFromMap || rootFromField
+        // Prefer a non-root position in volumes map
+        const entries = Object.entries(volumesObj)
+        // First try the common position '1'
+        const pos1 = entries.find(([k]) => k !== '0')
+        if (pos1) {
+            const vid = normalize(pos1[1].id || pos1[1].volumeId)
+            if (vid && vid !== rootVolId) return vid
+        }
+        // Then try any other non-root positions
+        for (const [k, v] of entries) {
+            if (k === '0') continue
+            const vid = normalize(v.id || v.volumeId)
+            if (vid && vid !== rootVolId) return vid
+        }
+        // Some API variants expose additionalVolumes
+        const addlObj = (srv as unknown as { additionalVolumes?: Record<string, { id?: string; volumeId?: string }> }).additionalVolumes || {}
+        for (const v of Object.values(addlObj)) {
+            const vid = normalize(v.id || v.volumeId)
+            if (vid && vid !== rootVolId) return vid
+        }
+        return undefined
+    }
+
     async getInstanceStatus(serverId: string): Promise<ScalewayServerState | undefined> {
         this.logger.debug(`Getting Scaleway virtual machine state: ${serverId}`)
 

@@ -29,7 +29,7 @@ export interface RestoreSnapshotArgs {
     projectId: string
     zone: string
     instanceServerId: string
-    oldDataDiskId: string
+    oldDataDiskId?: string
     snapshotName: string
     ssh: InstanceStateV1['provision']['input']['ssh']
     host: string
@@ -81,6 +81,21 @@ class CreateSnapshotClient extends InstancePulumiClient<{ projectId: string, reg
 }
 
 export async function createDataDiskSnapshot(args: CreateSnapshotArgs): Promise<CreateSnapshotResult>{
+    // Pre-check: ensure the source volume still exists (it may have been deleted by a previous archive)
+    try {
+        const client = createClient({ ...loadProfileFromConfigurationFile(), defaultZone: args.zone })
+        const block = new Block.v1alpha1.API(client)
+        await block.getVolume({ volumeId: args.dataDiskId })
+    } catch (e) {
+        const msg = String((e as Error).message || e)
+        throw new Error(
+            `Data disk volume '${args.dataDiskId}' not found in zone '${args.zone}'. ` +
+            `You likely archived/deleted the data disk earlier. ` +
+            `Restore a snapshot first (cloudypad snapshot scaleway <name> --restore --name ${args.instanceName}) ` +
+            `or create a new data disk (update the instance with a data-disk size) before snapshotting.\nDetails: ${msg}`
+        )
+    }
+
     const client = new CreateSnapshotClient({
         program: programCreateSnapshot(args),
         projectName: 'CloudyPad-Scaleway-Snapshot',
@@ -99,6 +114,22 @@ export async function snapshotAndDeleteDataDisk(args: ArchiveAfterSnapshotArgs):
 
     // 2) Stop, detach, delete the data disk, start back
     const scwClient = new ScalewayClient('scw-archive', { projectId: args.projectId, zone: args.zone })
+    // Safety: never delete the root volume. Compute root volume id and compare.
+    try {
+        const srv = await scwClient.getRawServerData(args.instanceServerId)
+        const normalize = (id?: string) => (id ? (id.includes('/') ? id.split('/').pop() as string : id) : undefined)
+        const rootId = normalize((srv as unknown as { rootVolume?: { volumeId?: string } })?.rootVolume?.volumeId)
+        if (rootId && normalize(args.dataDiskId) === rootId) {
+            throw new Error(`Refusing to delete root disk ${rootId}. The data disk to archive matches the root volume.`)
+        }
+    } catch (e) {
+        if (e instanceof Error && e.message.startsWith('Refusing to delete root disk')) {
+            logger.error(e.message)
+            throw e
+        }
+        // If we cannot fetch server data, continue but deletion phase will still only ever target args.dataDiskId
+        logger.warn(`Could not verify root volume before archive deletion: ${String((e as Error).message)}`)
+    }
     // Stop and detach
     try {
         await scwClient.stopInstance(args.instanceServerId, { wait: true, waitTimeoutSeconds: 300 })
@@ -176,7 +207,7 @@ class RestoreVolumeClient extends InstancePulumiClient<{ projectId: string, regi
     }
 }
 
-export async function restoreDataDiskSnapshot(args: RestoreSnapshotArgs): Promise<void> {
+export async function restoreDataDiskSnapshot(args: RestoreSnapshotArgs): Promise<{ newDataDiskId: string }> {
     const logger = getLogger('scw-snapshot-restore')
     validateSnapshotName(args.snapshotName)
 
@@ -192,9 +223,13 @@ export async function restoreDataDiskSnapshot(args: RestoreSnapshotArgs): Promis
     try {
         const client = createClient({ ...loadProfileFromConfigurationFile(), defaultZone: args.zone })
         const scwBlock = new Block.v1alpha1.API(client)
-    const volInfo = await scwBlock.getVolume({ volumeId: args.oldDataDiskId })
-    desiredIops = (volInfo.specs?.perfIops as number | undefined) || undefined
-        if (desiredIops) logger.debug(`Detected original data disk perfIops=${desiredIops}`)
+        if (args.oldDataDiskId) {
+            const volInfo = await scwBlock.getVolume({ volumeId: args.oldDataDiskId })
+            desiredIops = (volInfo.specs?.perfIops as number | undefined) || undefined
+            if (desiredIops) logger.debug(`Detected original data disk perfIops=${desiredIops}`)
+        } else {
+            logger.info('No previous data disk ID found; using default IOPS (5000) for restored volume')
+        }
     } catch (e) {
         logger.warn(`Could not detect original data disk IOPS; defaulting to 5000. ${String((e as Error).message)}`)
     }
@@ -214,17 +249,21 @@ export async function restoreDataDiskSnapshot(args: RestoreSnapshotArgs): Promis
     // Safer path: stop instance for storage operations
     await scwClient.stopInstance(args.instanceServerId, { wait: true, waitTimeoutSeconds: 300 })
 
-    // Detach old data disk then attach new one (tolerate when already not attached)
-    try {
-        await scwClient.detachDataVolume(args.instanceServerId, args.oldDataDiskId)
-    } catch (eDet: unknown) {
-        const err = eDet as Error
-        const msg = String(err.message || eDet)
-        if (msg.includes('not attached to this server') || msg.includes('InvalidArgumentsError') || msg.includes('ResourceNotFoundError') || msg.includes('404')) {
-            logger.warn(`Old data disk ${args.oldDataDiskId} reported as not attached; continuing restore. Details: ${msg}`)
-        } else {
-            throw err
+    // Detach old data disk if provided, then attach new one (tolerate when already not attached)
+    if (args.oldDataDiskId) {
+        try {
+            await scwClient.detachDataVolume(args.instanceServerId, args.oldDataDiskId)
+        } catch (eDet: unknown) {
+            const err = eDet as Error
+            const msg = String(err.message || eDet)
+            if (msg.includes('not attached to this server') || msg.includes('InvalidArgumentsError') || msg.includes('ResourceNotFoundError') || msg.includes('404')) {
+                logger.warn(`Old data disk ${args.oldDataDiskId} reported as not attached; continuing restore. Details: ${msg}`)
+            } else {
+                throw err
+            }
         }
+    } else {
+        logger.info('No previous data disk ID found; skipping detach step')
     }
     await scwClient.attachDataVolume(args.instanceServerId, newVolumeId)
 
@@ -263,7 +302,11 @@ export async function restoreDataDiskSnapshot(args: RestoreSnapshotArgs): Promis
                     throw eDet
                 }
             }
-            await scwClient.attachDataVolume(args.instanceServerId, args.oldDataDiskId)
+            if (args.oldDataDiskId) {
+                await scwClient.attachDataVolume(args.instanceServerId, args.oldDataDiskId)
+            } else {
+                logger.warn('Rollback requested but no old data disk ID available; leaving new disk detached')
+            }
             await scwClient.startInstance(args.instanceServerId, { wait: true, waitTimeoutSeconds: 300 })
         } catch (e2) {
             logger.error('Rollback failed: please check instance attachments manually.', e2)
@@ -273,6 +316,9 @@ export async function restoreDataDiskSnapshot(args: RestoreSnapshotArgs): Promis
 
     // If we reach here, optionally delete old data disk to reduce costs
     if (args.deleteOldDisk) {
+        if (!args.oldDataDiskId) {
+            logger.warn('Requested --delete-old-disk but no old data disk ID is available; skipping deletion')
+        } else {
         try {
             await scwClient.stopInstance(args.instanceServerId, { wait: true, waitTimeoutSeconds: 300 })
             try {
@@ -317,6 +363,7 @@ export async function restoreDataDiskSnapshot(args: RestoreSnapshotArgs): Promis
                 logger.error('Failed to start instance after old disk deletion flow; please start it manually.', e)
             }
         }
+        }
     }
 
     // Cleanup snapshot by destroying the transient stack used to create the snapshot resource
@@ -328,4 +375,6 @@ export async function restoreDataDiskSnapshot(args: RestoreSnapshotArgs): Promis
     } catch (e) {
         logger.warn(`Failed to delete snapshot ${expectedName}: ${String((e as Error).message)}`)
     }
+
+    return { newDataDiskId: newVolumeId }
 }
