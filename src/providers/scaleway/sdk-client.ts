@@ -2,6 +2,25 @@ import { getLogger, Logger } from '../../log/utils'
 import { createClient, Instance, Vpc, Account, Marketplace, Profile, Block } from '@scaleway/sdk'
 import { loadProfileFromConfigurationFile } from '@scaleway/configuration-loader'
 
+// Constants for Scaleway volume types
+const SCALEWAY_VOLUME_TYPES = {
+    BLOCK_SSD: 'b_ssd',
+    SBS_VOLUME: 'sbs_volume'
+} as const
+
+type ScalewayVolumeTypeForInstance = typeof SCALEWAY_VOLUME_TYPES[keyof typeof SCALEWAY_VOLUME_TYPES]
+
+// Type guards for API responses
+function isVolumeStatusResponse(obj: unknown): obj is { status?: string } {
+    return typeof obj === 'object' && obj !== null
+}
+
+function isVolumeSpecsResponse(obj: unknown): obj is { specs?: { class?: string } } {
+    return typeof obj === 'object' && obj !== null
+}
+
+
+
 interface StartStopActionOpts {
     wait?: boolean
     waitTimeoutSeconds?: number
@@ -105,9 +124,7 @@ export class ScalewayClient {
             ScalewayClient.loadProfileFromConfigurationFile()
         } catch (error) {
             throw new Error("Scaleway configuration is not valid. Did you configure your Scaleway credentials? "
-                +  "See https://docs.cloudypad.gg/cloud-provider-setup/scaleway.html.",
-                { cause: error }
-            )
+                +  "See https://docs.cloudypad.gg/cloud-provider-setup/scaleway.html. Error: " + (error as Error).message)
         }
     }
 
@@ -179,7 +196,7 @@ export class ScalewayClient {
             try {
                 await this.instanceClient.serverAction({ serverId, action: ServerActionEnum.PowerOn })
             } catch (e: unknown) {
-                const msg = String((e as Error).message || e)
+                const msg = e instanceof Error ? e.message : String(e)
                 if (msg.includes('resource_not_usable') || msg.includes('All volumes attached to the server must be available')) {
                     this.logger.warn(`Server ${serverId} not startable yet (volumes not usable). Waiting for attached volumes to be in_use...`)
                     await this.waitForAllVolumesUsable(serverId, 120_000)
@@ -195,7 +212,7 @@ export class ScalewayClient {
                 await this.withTimeout(this.waitForStatus(serverId, ScalewayServerState.Running), waitTimeout * 1000)
             }
         } catch (error) {
-            throw new Error(`Failed to start virtual machine ${serverId}`, { cause: error })
+            throw new Error(`Failed to start virtual machine ${serverId}. Error: ${(error as Error).message}`)
         }
     }
 
@@ -222,7 +239,7 @@ export class ScalewayClient {
             }
 
         } catch (error) {
-            throw new Error(`Failed to stop virtual machine ${serverId}`, { cause: error })
+            throw new Error(`Failed to stop virtual machine ${serverId}. Error: ${(error as Error).message}`)
         }
     }
 
@@ -240,17 +257,28 @@ export class ScalewayClient {
             }
 
         } catch (error) {
-            throw new Error(`Failed to restart virtual machine ${serverId}`, { cause: error })
+            throw new Error(`Failed to restart virtual machine ${serverId}. Error: ${(error as Error).message}`)
         }
     }
 
     private normalizeUuid(id: string | undefined): string | undefined {
         if (!id) return undefined
-        return id.includes('/') ? (id.split('/').pop() as string) : id
+        if (id.includes('/')) {
+            const parts = id.split('/')
+            const lastPart = parts[parts.length - 1]
+            if (!lastPart) {
+                throw new Error(`Invalid UUID format: ${id}`)
+            }
+            return lastPart
+        }
+        return id
     }
 
     async detachDataVolume(serverId: string, blockVolumeId: string): Promise<void> {
-        const volumeId = this.normalizeUuid(blockVolumeId) as string
+        const volumeId = this.normalizeUuid(blockVolumeId)
+        if (!volumeId) {
+            throw new Error(`Invalid volume ID provided: ${blockVolumeId}`)
+        }
         this.logger.debug(`Detaching block volume ${volumeId} from server ${serverId}`)
         // Use official SDK method
         await (this.instanceClient as unknown as { detachServerVolume: (args: { serverId: string; volumeId: string }) => Promise<unknown> }).detachServerVolume({ serverId, volumeId })
@@ -259,8 +287,8 @@ export class ScalewayClient {
         const start = Date.now()
         while (true) {
             try {
-                const vol = await (this.blockClient as unknown as { getVolume: (args: { volumeId: string }) => Promise<{ status?: string }> }).getVolume({ volumeId })
-                if (vol && vol.status && vol.status !== 'in_use') break
+                const vol = await (this.blockClient as unknown as { getVolume: (args: { volumeId: string }) => Promise<unknown> }).getVolume({ volumeId })
+                if (isVolumeStatusResponse(vol) && vol.status && vol.status !== 'in_use') break
             } catch {
                 // ignore lookup errors transiently
                 break
@@ -274,21 +302,28 @@ export class ScalewayClient {
     }
 
     async attachDataVolume(serverId: string, volumeId: string): Promise<void> {
-        const volId = this.normalizeUuid(volumeId) as string
+        const volId = this.normalizeUuid(volumeId)
+        if (!volId) {
+            throw new Error(`Invalid volume ID provided: ${volumeId}`)
+        }
         this.logger.debug(`Attaching block volume ${volId} to server ${serverId}`)
         // Determine required instance volumeType based on Block Storage class
-        let volumeTypeForInstance: 'b_ssd' | 'sbs_volume' = ScalewayVolumeType.BLOCK_SSD as unknown as 'b_ssd'
+        let volumeTypeForInstance: ScalewayVolumeTypeForInstance = SCALEWAY_VOLUME_TYPES.BLOCK_SSD
         try {
-            const vol = await (this.blockClient as unknown as { getVolume: (args: { volumeId: string }) => Promise<{ specs?: { class?: string } }> }).getVolume({ volumeId: volId })
-            const klass = vol?.specs?.class
+            const vol = await (this.blockClient as unknown as { getVolume: (args: { volumeId: string }) => Promise<unknown> }).getVolume({ volumeId: volId })
+            let klass: string | undefined
+            if (isVolumeSpecsResponse(vol)) {
+                klass = vol.specs?.class
+            }
             if (klass === 'sbs') {
-                volumeTypeForInstance = 'sbs_volume'
+                volumeTypeForInstance = SCALEWAY_VOLUME_TYPES.SBS_VOLUME
             } else {
-                volumeTypeForInstance = 'b_ssd'
+                volumeTypeForInstance = SCALEWAY_VOLUME_TYPES.BLOCK_SSD
             }
             this.logger.debug(`Detected block volume class '${klass ?? 'unknown'}' -> instance volume_type '${volumeTypeForInstance}'`)
         } catch (e) {
-            this.logger.warn(`Could not detect block volume class for ${volId}; defaulting to 'b_ssd'. ${(e as Error).message}`)
+            const errorMsg = e instanceof Error ? e.message : String(e)
+            this.logger.warn(`Could not detect block volume class for ${volId}; defaulting to '${SCALEWAY_VOLUME_TYPES.BLOCK_SSD}'. ${errorMsg}`)
         }
         const client = this.instanceClient as unknown as { attachServerVolume: (args: { serverId: string; volumeId: string; volumeType: 'b_ssd' | 'sbs_volume' }) => Promise<unknown> }
         await client.attachServerVolume({ serverId, volumeId: volId, volumeType: volumeTypeForInstance })
@@ -297,8 +332,8 @@ export class ScalewayClient {
         const start = Date.now()
         while (true) {
             try {
-                const vol = await (this.blockClient as unknown as { getVolume: (args: { volumeId: string }) => Promise<{ status?: string }> }).getVolume({ volumeId: volId })
-                if (vol && vol.status === 'in_use') break
+                const vol = await (this.blockClient as unknown as { getVolume: (args: { volumeId: string }) => Promise<unknown> }).getVolume({ volumeId: volId })
+                if (isVolumeStatusResponse(vol) && vol.status === 'in_use') break
             } catch {
                 // ignore transient lookup errors
             }
@@ -335,33 +370,48 @@ export class ScalewayClient {
     async findCurrentDataDiskId(serverId: string): Promise<string | undefined> {
         const srv = await this.getRawServerData(serverId)
         if (!srv) return undefined
+        
         // Normalize helpers
-        const normalize = (id?: string) => (id ? (id.includes('/') ? id.split('/').pop() as string : id) : undefined)
-        const volumesObj = (srv as unknown as { volumes?: Record<string, { id?: string; volumeId?: string }> }).volumes || {}
+        const normalize = (id?: string) => (id ? (id.includes('/') ? id.split('/').pop()! : id) : undefined)
+        
+        // Type-safe server data access
+        const serverData = srv as unknown as { 
+            volumes?: Record<string, { id?: string; volumeId?: string }> 
+            rootVolume?: { volumeId?: string }
+            additionalVolumes?: Record<string, { id?: string; volumeId?: string }>
+        }
+        
+        const volumesObj = serverData.volumes || {}
+        
         // Determine root volume id: prefer explicit key '0' in volumes map, else fallback to rootVolume.volumeId
-        const rootFromMap = volumesObj['0'] ? normalize(volumesObj['0'].id || volumesObj['0'].volumeId) : undefined
-        const rootFromField = normalize((srv as unknown as { rootVolume?: { volumeId?: string } }).rootVolume?.volumeId)
+        const rootFromMap = volumesObj['0'] ? normalize(volumesObj['0']?.id || volumesObj['0']?.volumeId) : undefined
+        const rootFromField = normalize(serverData.rootVolume?.volumeId)
         const rootVolId = rootFromMap || rootFromField
+        
         // Prefer a non-root position in volumes map
         const entries = Object.entries(volumesObj)
+        
         // First try the common position '1'
         const pos1 = entries.find(([k]) => k !== '0')
         if (pos1) {
-            const vid = normalize(pos1[1].id || pos1[1].volumeId)
+            const vid = normalize(pos1[1]?.id || pos1[1]?.volumeId)
             if (vid && vid !== rootVolId) return vid
         }
+        
         // Then try any other non-root positions
         for (const [k, v] of entries) {
             if (k === '0') continue
-            const vid = normalize(v.id || v.volumeId)
+            const vid = normalize(v?.id || v?.volumeId)
             if (vid && vid !== rootVolId) return vid
         }
+        
         // Some API variants expose additionalVolumes
-        const addlObj = (srv as unknown as { additionalVolumes?: Record<string, { id?: string; volumeId?: string }> }).additionalVolumes || {}
+        const addlObj = serverData.additionalVolumes || {}
         for (const v of Object.values(addlObj)) {
-            const vid = normalize(v.id || v.volumeId)
+            const vid = normalize(v?.id || v?.volumeId)
             if (vid && vid !== rootVolId) return vid
         }
+        
         return undefined
     }
 
@@ -391,7 +441,7 @@ export class ScalewayClient {
             }
 
         } catch (error) {
-            throw new Error(`Failed to get Scaleway virtual machine status: ${serverId}`, { cause: error })
+            throw new Error(`Failed to get Scaleway virtual machine status: ${serverId}. Error: ${(error as Error).message}`)
         }
     }
 

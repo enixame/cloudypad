@@ -260,7 +260,7 @@ export class ScalewayPulumiClient extends InstancePulumiClient<PulumiStackConfig
     protected async buildTypedOutput(outputs: OutputMap) : Promise<ScalewayPulumiOutput>{
         return {
             instanceServerName: outputs["instanceServerName"]?.value as string,
-            publicIp: outputs["publicIp"].value as string,
+            publicIp: outputs["publicIp"]?.value as string,
             instanceServerId: outputs["instanceServerId"]?.value as string,
             rootDiskId: outputs["rootDiskId"]?.value as string,
             instanceServerUrn: outputs["instanceServerUrn"]?.value as string | null,

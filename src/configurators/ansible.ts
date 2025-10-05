@@ -76,7 +76,7 @@ export class AnsibleConfigurator<ST extends InstanceStateV1> extends AbstractIns
      * @param jsonObjectInventory Inventory content as a JSON object
      * @returns Path to the inventory file
      */
-    public async writeTempInventory(jsonObjectInventory: Record<string, unknown>): Promise<string> {
+    public async writeTempInventory(jsonObjectInventory: AnsibleInventory): Promise<string> {
         
         const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cloudypad-'));
         const inventoryPath = path.join(tmpDir, 'inventory.yml');
@@ -88,10 +88,10 @@ export class AnsibleConfigurator<ST extends InstanceStateV1> extends AbstractIns
         fs.writeFileSync(knownHostsPath, '', 'utf8')
 
         // Override SSH common args with accept-new + our temporary known_hosts
-        const inv = jsonObjectInventory as { all?: { hosts?: Record<string, Record<string, unknown>> } }
+        const inv = jsonObjectInventory
         const hostEntry = inv.all?.hosts?.[this.args.instanceName]
         if (hostEntry) {
-            hostEntry['ansible_ssh_common_args'] = `-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=${knownHostsPath}`
+            hostEntry.ansible_ssh_common_args = `-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=${knownHostsPath}`
         }
 
         fs.writeFileSync(inventoryPath, yaml.stringify(jsonObjectInventory), 'utf8')
@@ -103,7 +103,7 @@ export class AnsibleConfigurator<ST extends InstanceStateV1> extends AbstractIns
      * Generate inventory content for Ansible as a JSON object
      * @returns Inventory content as a JSON object
      */
-    public async generateInventoryObject(): Promise<Record<string, unknown>>   {
+    public async generateInventoryObject(): Promise<AnsibleInventory>   {
 
         const sshAuth = new SshKeyLoader().getSshAuth(this.args.provisionInput.ssh)
 
@@ -154,6 +154,40 @@ export class AnsibleConfigurator<ST extends InstanceStateV1> extends AbstractIns
                 },
             },
         }
+    }
+}
+
+export interface AnsibleInventoryHost {
+    ansible_host: string
+    ansible_user: string
+    ansible_ssh_private_key_file?: string
+    ansible_password?: string
+    ansible_ssh_common_args?: string
+    cloudypad_provider: string
+    wolf_instance_name: string
+    sunshine_server_name: string
+    sunshine_web_username?: string
+    sunshine_web_password_base64?: string
+    sunshine_nvidia_enable: boolean
+    sunshine_image_tag: string
+    sunshine_image_registry: string
+    sunshine_max_bitrate_kbps?: number
+    sunshine_keyboard_layout?: string
+    sunshine_keyboard_variant?: string
+    sunshine_keyboard_model?: string
+    sunshine_keyboard_options?: string
+    sunshine_locale?: string | null
+    autostop_enable?: boolean
+    autostop_timeout_seconds?: number
+    cloudypad_data_disk_enabled: boolean
+    cloudypad_data_disk_id?: string
+    ratelimit_enable: boolean
+    ratelimit_max_mbps?: number
+}
+
+export interface AnsibleInventory {
+    all: {
+        hosts: Record<string, AnsibleInventoryHost>
     }
 }
 

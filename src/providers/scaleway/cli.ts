@@ -11,7 +11,7 @@ import { RUN_COMMAND_CREATE, RUN_COMMAND_UPDATE } from "../../tools/analytics/ev
 import { InteractiveInstanceUpdater } from "../../cli/updater";
 import { ScalewayProviderClient } from "./provider";
 import { Command } from "@commander-js/extra-typings";
-import { createDataDiskSnapshot, restoreDataDiskSnapshot, validateSnapshotName } from "../../infrastructure/scaleway/snapshot";
+import { createDataDiskSnapshot, restoreDataDiskSnapshot, validateSnapshotName, snapshotAndDeleteDataDisk } from "../../infrastructure/scaleway/snapshot";
 import { createClient, Block } from '@scaleway/sdk'
 import { loadProfileFromConfigurationFile } from '@scaleway/configuration-loader'
 import { CoreConfig } from "../../core/config/interface";
@@ -360,7 +360,6 @@ export class ScalewayCliCommandGenerator extends CliCommandGenerator {
                         if (!opts.yes) {
                             console.warn("--delete-data-disk requested but --yes not provided; skipping data disk deletion. Re-run with --yes to confirm.")
                         } else {
-                            const { snapshotAndDeleteDataDisk } = await import('../../infrastructure/scaleway/snapshot')
                             await snapshotAndDeleteDataDisk({
                                 instanceName: state.name,
                                 projectId: provisionIn.projectId,

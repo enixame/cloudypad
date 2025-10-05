@@ -8,9 +8,18 @@ import { createClient, Block } from '@scaleway/sdk'
 import { loadProfileFromConfigurationFile } from '@scaleway/configuration-loader'
 import { InstanceStateV1 } from '../../core/state/state'
 
+// Type guards for external API responses
+function isVolumeResponse(obj: unknown): obj is { specs?: { perfIops?: number } } {
+    return typeof obj === 'object' && obj !== null
+}
+
+function isServerData(obj: unknown): obj is { rootVolume?: { volumeId?: string } } {
+    return typeof obj === 'object' && obj !== null
+}
+
 export function validateSnapshotName(name: string){
-    if(!/^[a-z0-9-_]{1,63}$/.test(name)){
-        throw new Error('Invalid snapshot name. It must match [a-z0-9-_] and length ≤ 63.')
+    if(!/^[a-zA-Z0-9-_]{1,63}$/.test(name)){
+        throw new Error('Invalid snapshot name. It must match [a-zA-Z0-9-_] and length ≤ 63.')
     }
 }
 
@@ -67,8 +76,7 @@ function programCreateSnapshot(args: CreateSnapshotArgs){
 
 class CreateSnapshotClient extends InstancePulumiClient<{ projectId: string, region: string, zone: string }, { snapshotId: string }>{
     protected async doSetConfig(config: { projectId: string, region: string, zone: string }): Promise<void> {
-        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-        // @ts-ignore access protected
+        // Access protected method through proper inheritance
         const stack = await this.getStack()
         await stack.setConfig("scaleway:project_id", { value: config.projectId })
         await stack.setConfig("scaleway:region", { value: config.region })
@@ -76,7 +84,11 @@ class CreateSnapshotClient extends InstancePulumiClient<{ projectId: string, reg
     }
     protected async buildTypedOutput(outputs: Record<string, { value: unknown }>): Promise<{ snapshotId: string }> {
         // our program returns a plain object, not Pulumi outputs, map it
-        return { snapshotId: outputs['snapshotId']?.value as string }
+        const snapshotIdValue = outputs['snapshotId']?.value
+        if (typeof snapshotIdValue !== 'string') {
+            throw new Error(`Expected string snapshot ID, got ${typeof snapshotIdValue}`)
+        }
+        return { snapshotId: snapshotIdValue }
     }
 }
 
@@ -117,8 +129,20 @@ export async function snapshotAndDeleteDataDisk(args: ArchiveAfterSnapshotArgs):
     // Safety: never delete the root volume. Compute root volume id and compare.
     try {
         const srv = await scwClient.getRawServerData(args.instanceServerId)
-        const normalize = (id?: string) => (id ? (id.includes('/') ? id.split('/').pop() as string : id) : undefined)
-        const rootId = normalize((srv as unknown as { rootVolume?: { volumeId?: string } })?.rootVolume?.volumeId)
+        const normalize = (id?: string) => {
+            if (!id) return undefined
+            if (id.includes('/')) {
+                const parts = id.split('/')
+                const lastPart = parts[parts.length - 1]
+                return lastPart || undefined
+            }
+            return id
+        }
+        
+        let rootId: string | undefined
+        if (isServerData(srv)) {
+            rootId = normalize(srv.rootVolume?.volumeId)
+        }
         if (rootId && normalize(args.dataDiskId) === rootId) {
             throw new Error(`Refusing to delete root disk ${rootId}. The data disk to archive matches the root volume.`)
         }
@@ -128,7 +152,8 @@ export async function snapshotAndDeleteDataDisk(args: ArchiveAfterSnapshotArgs):
             throw e
         }
         // If we cannot fetch server data, continue but deletion phase will still only ever target args.dataDiskId
-        logger.warn(`Could not verify root volume before archive deletion: ${String((e as Error).message)}`)
+        const errorMsg = e instanceof Error ? e.message : String(e)
+        logger.warn(`Could not verify root volume before archive deletion: ${errorMsg}`)
     }
     // Stop and detach
     try {
@@ -136,10 +161,13 @@ export async function snapshotAndDeleteDataDisk(args: ArchiveAfterSnapshotArgs):
         try {
             await scwClient.detachDataVolume(args.instanceServerId, args.dataDiskId)
         } catch (eDet: unknown) {
-            const err = eDet as Error
-            const msg = String(err.message || eDet)
+            const err = eDet instanceof Error ? eDet : new Error(String(eDet))
+            const msg = err.message
             if (msg.includes('ResourceNotFoundError') || msg.includes('instance_volume') || msg.includes('404')) {
-                logger.warn(`Detach reported volume not attached; continuing deletion. Details: ${msg}`)
+                logger.warn('Detach reported volume not attached; continuing deletion', {
+                    volumeId: args.dataDiskId,
+                    error: msg
+                })
             } else {
                 throw err
             }
@@ -158,17 +186,25 @@ export async function snapshotAndDeleteDataDisk(args: ArchiveAfterSnapshotArgs):
                 logger.info(`Deleted data disk ${args.dataDiskId} after snapshot ${snap.snapshotId}`)
                 break
             } catch (eDel: unknown) {
-                const err = eDel as Error
-                const msg = String(err.message || eDel)
+                const err = eDel instanceof Error ? eDel : new Error(String(eDel))
+                const msg = err.message
                 if (msg.includes('in_use') || msg.includes('protected_resource') || msg.includes('412')) {
                     if (attempt < maxRetries) {
-                        logger.warn(`Volume ${args.dataDiskId} still in use (attempt ${attempt}/${maxRetries}). Retrying in ${Math.round(delayMs/1000)}s...`)
+                        logger.warn('Volume deletion retry', {
+                            volumeId: args.dataDiskId,
+                            attempt,
+                            maxRetries,
+                            delayMs,
+                            error: msg
+                        })
                         await new Promise(r => setTimeout(r, delayMs))
                         continue
                     }
+                    // Max retries reached - this is critical failure
+                    throw new Error(`Critical: Failed to delete volume ${args.dataDiskId} after ${maxRetries} attempts. Snapshot ${snap.snapshotId} exists but cleanup incomplete. Error: ${err.message}`)
                 }
-                logger.error(`Failed to delete data disk ${args.dataDiskId} after ${attempt} attempts. You may delete it manually later.`, err)
-                break
+                // Non-retryable error - also critical
+                throw new Error(`Critical: Cannot delete volume ${args.dataDiskId}. Snapshot ${snap.snapshotId} exists but cleanup failed. Error: ${err.message}`)
             }
         }
     }
@@ -195,15 +231,18 @@ function programCreateVolumeFromSnapshot(params: { stack: string, snapshotName: 
 
 class RestoreVolumeClient extends InstancePulumiClient<{ projectId: string, region: string, zone: string }, { newVolumeId: string }>{
     protected async doSetConfig(config: { projectId: string, region: string, zone: string }): Promise<void> {
-        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-        // @ts-ignore access protected
-        const stack = await this.getStack()
+        // Access protected method through proper inheritance
+        const stack = await this.getStack() // TODO: Improve base class API
         await stack.setConfig("scaleway:project_id", { value: config.projectId })
         await stack.setConfig("scaleway:region", { value: config.region })
         await stack.setConfig("scaleway:zone", { value: config.zone })
     }
     protected async buildTypedOutput(outputs: Record<string, { value: unknown }>): Promise<{ newVolumeId: string }> {
-        return { newVolumeId: outputs['newVolumeId']?.value as string }
+        const newVolumeIdValue = outputs['newVolumeId']?.value
+        if (typeof newVolumeIdValue !== 'string') {
+            throw new Error(`Expected string volume ID, got ${typeof newVolumeIdValue}`)
+        }
+        return { newVolumeId: newVolumeIdValue }
     }
 }
 
@@ -225,13 +264,16 @@ export async function restoreDataDiskSnapshot(args: RestoreSnapshotArgs): Promis
         const scwBlock = new Block.v1alpha1.API(client)
         if (args.oldDataDiskId) {
             const volInfo = await scwBlock.getVolume({ volumeId: args.oldDataDiskId })
-            desiredIops = (volInfo.specs?.perfIops as number | undefined) || undefined
-            if (desiredIops) logger.debug(`Detected original data disk perfIops=${desiredIops}`)
+            if (isVolumeResponse(volInfo)) {
+                desiredIops = typeof volInfo.specs?.perfIops === 'number' ? volInfo.specs.perfIops : undefined
+                if (desiredIops) logger.debug(`Detected original data disk perfIops=${desiredIops}`)
+            }
         } else {
             logger.info('No previous data disk ID found; using default IOPS (5000) for restored volume')
         }
     } catch (e) {
-        logger.warn(`Could not detect original data disk IOPS; defaulting to 5000. ${String((e as Error).message)}`)
+        const errorMsg = e instanceof Error ? e.message : String(e)
+        logger.warn(`Could not detect original data disk IOPS; defaulting to 5000. ${errorMsg}`)
     }
 
     const volClient = new RestoreVolumeClient({
@@ -242,7 +284,11 @@ export async function restoreDataDiskSnapshot(args: RestoreSnapshotArgs): Promis
     await volClient.setConfig({ projectId: args.projectId, region: args.zone.split('-').slice(0,2).join('-'), zone: args.zone })
     const volOut = await volClient.up()
     const newVolumeIdFull = volOut.newVolumeId // zoned id like fr-par-1/uuid
-    const newVolumeId = newVolumeIdFull.split('/').pop() as string
+    const volumeParts = newVolumeIdFull.split('/')
+    const newVolumeId = volumeParts[volumeParts.length - 1]
+    if (!newVolumeId) {
+        throw new Error(`Invalid volume ID format: ${newVolumeIdFull}`)
+    }
 
     const scwClient = new ScalewayClient('scw-attach', { projectId: args.projectId, zone: args.zone })
 
@@ -254,10 +300,13 @@ export async function restoreDataDiskSnapshot(args: RestoreSnapshotArgs): Promis
         try {
             await scwClient.detachDataVolume(args.instanceServerId, args.oldDataDiskId)
         } catch (eDet: unknown) {
-            const err = eDet as Error
-            const msg = String(err.message || eDet)
+            const err = eDet instanceof Error ? eDet : new Error(String(eDet))
+            const msg = err.message
             if (msg.includes('not attached to this server') || msg.includes('InvalidArgumentsError') || msg.includes('ResourceNotFoundError') || msg.includes('404')) {
-                logger.warn(`Old data disk ${args.oldDataDiskId} reported as not attached; continuing restore. Details: ${msg}`)
+                logger.warn('Old data disk reported as not attached; continuing restore', {
+                    oldDataDiskId: args.oldDataDiskId,
+                    error: msg
+                })
             } else {
                 throw err
             }
@@ -295,11 +344,15 @@ export async function restoreDataDiskSnapshot(args: RestoreSnapshotArgs): Promis
             try {
                 await scwClient.detachDataVolume(args.instanceServerId, newVolumeId)
             } catch (eDet: unknown) {
-                const msg = String((eDet as Error).message || eDet)
+                const err = eDet instanceof Error ? eDet : new Error(String(eDet))
+                const msg = err.message
                 if (msg.includes('not attached') || msg.includes('InvalidArgumentsError') || msg.includes('ResourceNotFoundError') || msg.includes('404')) {
-                    logger.warn(`New volume ${newVolumeId} not attached during rollback; continuing attach of old disk`)
+                    logger.warn('New volume not attached during rollback; continuing attach of old disk', {
+                        newVolumeId,
+                        error: msg
+                    })
                 } else {
-                    throw eDet
+                    throw err
                 }
             }
             if (args.oldDataDiskId) {
@@ -324,10 +377,13 @@ export async function restoreDataDiskSnapshot(args: RestoreSnapshotArgs): Promis
             try {
                 await scwClient.detachDataVolume(args.instanceServerId, args.oldDataDiskId)
             } catch (eDet: unknown) {
-                const err = eDet as Error
-                const msg = String(err.message || eDet)
+                const err = eDet instanceof Error ? eDet : new Error(String(eDet))
+                const msg = err.message
                 if (msg.includes('ResourceNotFoundError') || msg.includes('instance_volume') || msg.includes('404')) {
-                    logger.warn(`Old disk detach reported not attached; continuing deletion. Details: ${msg}`)
+                    logger.warn('Old disk detach reported not attached; continuing deletion', {
+                        oldDataDiskId: args.oldDataDiskId,
+                        error: msg
+                    })
                 } else {
                     throw err
                 }
@@ -341,16 +397,26 @@ export async function restoreDataDiskSnapshot(args: RestoreSnapshotArgs): Promis
                     logger.info(`Deleted old data disk ${args.oldDataDiskId}`)
                     break
                 } catch (eDel: unknown) {
-                    const err = eDel as Error
-                    const msg = String(err.message || eDel)
+                    const err = eDel instanceof Error ? eDel : new Error(String(eDel))
+                    const msg = err.message
                     if (msg.includes('in_use') || msg.includes('protected_resource') || msg.includes('412')) {
                         if (attempt < maxRetries) {
-                            logger.warn(`Old volume ${args.oldDataDiskId} still in use (attempt ${attempt}/${maxRetries}). Retrying in ${Math.round(delayMs/1000)}s...`)
+                            logger.warn('Old volume deletion retry', {
+                                oldDataDiskId: args.oldDataDiskId,
+                                attempt,
+                                maxRetries,
+                                delayMs,
+                                error: msg
+                            })
                             await new Promise(r => setTimeout(r, delayMs))
                             continue
                         }
                     }
-                    logger.error(`Failed to delete old data disk ${args.oldDataDiskId} after ${attempt} attempts.`, err)
+                    logger.error('Failed to delete old data disk after retries', {
+                        oldDataDiskId: args.oldDataDiskId,
+                        attempts: attempt,
+                        error: err
+                    })
                     break
                 }
             }
