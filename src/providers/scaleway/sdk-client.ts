@@ -1,14 +1,11 @@
 import { getLogger, Logger } from '../../log/utils'
 import { createClient, Instance, Vpc, Account, Marketplace, Profile, Block } from '@scaleway/sdk'
 import { loadProfileFromConfigurationFile } from '@scaleway/configuration-loader'
+import { ScalewayErrorUtils } from '../../tools/scaleway-error-utils'
+import { SCALEWAY_STORAGE, SCALEWAY_TIMEOUTS } from './constants'
 
-// Constants for Scaleway volume types
-const SCALEWAY_VOLUME_TYPES = {
-    BLOCK_SSD: 'b_ssd',
-    SBS_VOLUME: 'sbs_volume'
-} as const
-
-type ScalewayVolumeTypeForInstance = typeof SCALEWAY_VOLUME_TYPES[keyof typeof SCALEWAY_VOLUME_TYPES]
+// Use centralized volume type constants
+type ScalewayVolumeTypeForInstance = typeof SCALEWAY_STORAGE.VOLUME_TYPES[keyof typeof SCALEWAY_STORAGE.VOLUME_TYPES]
 
 // Type guards for API responses
 function isVolumeStatusResponse(obj: unknown): obj is { status?: string } {
@@ -39,23 +36,7 @@ const DEFAULT_START_STOP_OPTION_WAIT=false
 // Generous default timeout as G instances are sometime long to stop
 const DEFAULT_START_STOP_OPTION_WAIT_TIMEOUT=60
 
-/**
- * Available volume types for Scaleway instances.
- * 
- * Local volumes: The local volume of an Instance is an all-SSD-based storage solution, 
- * using a RAID array for redundancy and performance, hosted on the local hypervisor. 
- * On Scaleway Instances, the size of the local volume is fixed and depends on the Instance type. 
- * Some Instance types do not use local volumes and boot directly on block volumes.
- * 
- * Block volumes: Block volumes provide network-attached storage you can plug in and out of Instances like a virtual hard drive. 
- * Block volumes behave like regular disks and can be used to increase the storage of an Instance
- * 
- * See https://www.scaleway.com/en/docs/instances/concepts/#local-volumes
- */
-export enum ScalewayVolumeType {
-    BLOCK_SSD = "b_ssd",
-    LOCAL_SSD = "l_ssd",
-}
+// Use centralized volume type constants
 
 // Based on ServerState from '@scaleway/sdk/dist/api/instance/v1/types.gen'
 export enum ScalewayServerState {
@@ -123,8 +104,11 @@ export class ScalewayClient {
         try {
             ScalewayClient.loadProfileFromConfigurationFile()
         } catch (error) {
-            throw new Error("Scaleway configuration is not valid. Did you configure your Scaleway credentials? "
-                +  "See https://docs.cloudypad.gg/cloud-provider-setup/scaleway.html. Error: " + (error as Error).message)
+            throw ScalewayErrorUtils.createScalewayError(
+                "Scaleway configuration is not valid. Did you configure your Scaleway credentials? " +
+                "See https://docs.cloudypad.gg/cloud-provider-setup/scaleway.html. Error: " + ScalewayErrorUtils.extractErrorMessage(error),
+                error
+            )
         }
     }
 
@@ -196,10 +180,10 @@ export class ScalewayClient {
             try {
                 await this.instanceClient.serverAction({ serverId, action: ServerActionEnum.PowerOn })
             } catch (e: unknown) {
-                const msg = e instanceof Error ? e.message : String(e)
+                const msg = ScalewayErrorUtils.extractErrorMessage(e)
                 if (msg.includes('resource_not_usable') || msg.includes('All volumes attached to the server must be available')) {
                     this.logger.warn(`Server ${serverId} not startable yet (volumes not usable). Waiting for attached volumes to be in_use...`)
-                    await this.waitForAllVolumesUsable(serverId, 120_000)
+                    await this.waitForAllVolumesUsable(serverId, SCALEWAY_TIMEOUTS.VOLUME_USABLE_WAIT_TIMEOUT)
                     // single retry
                     await this.instanceClient.serverAction({ serverId, action: ServerActionEnum.PowerOn })
                 } else {
@@ -212,7 +196,7 @@ export class ScalewayClient {
                 await this.withTimeout(this.waitForStatus(serverId, ScalewayServerState.Running), waitTimeout * 1000)
             }
         } catch (error) {
-            throw new Error(`Failed to start virtual machine ${serverId}. Error: ${(error as Error).message}`)
+            throw ScalewayErrorUtils.createScalewayError(`Failed to start virtual machine ${serverId}. Error: ${ScalewayErrorUtils.extractErrorMessage(error)}`, error)
         }
     }
 
@@ -239,7 +223,7 @@ export class ScalewayClient {
             }
 
         } catch (error) {
-            throw new Error(`Failed to stop virtual machine ${serverId}. Error: ${(error as Error).message}`)
+            throw ScalewayErrorUtils.createScalewayError(`Failed to stop virtual machine ${serverId}. Error: ${ScalewayErrorUtils.extractErrorMessage(error)}`, error)
         }
     }
 
@@ -257,7 +241,7 @@ export class ScalewayClient {
             }
 
         } catch (error) {
-            throw new Error(`Failed to restart virtual machine ${serverId}. Error: ${(error as Error).message}`)
+            throw ScalewayErrorUtils.createScalewayError(`Failed to restart virtual machine ${serverId}. Error: ${ScalewayErrorUtils.extractErrorMessage(error)}`, error)
         }
     }
 
@@ -267,7 +251,7 @@ export class ScalewayClient {
             const parts = id.split('/')
             const lastPart = parts[parts.length - 1]
             if (!lastPart) {
-                throw new Error(`Invalid UUID format: ${id}`)
+                throw ScalewayErrorUtils.createInvalidUUIDError(id)
             }
             return lastPart
         }
@@ -277,7 +261,7 @@ export class ScalewayClient {
     async detachDataVolume(serverId: string, blockVolumeId: string): Promise<void> {
         const volumeId = this.normalizeUuid(blockVolumeId)
         if (!volumeId) {
-            throw new Error(`Invalid volume ID provided: ${blockVolumeId}`)
+            throw ScalewayErrorUtils.createInvalidUUIDError(blockVolumeId, 'volume ID')
         }
         this.logger.debug(`Detaching block volume ${volumeId} from server ${serverId}`)
         // Use official SDK method
@@ -304,11 +288,11 @@ export class ScalewayClient {
     async attachDataVolume(serverId: string, volumeId: string): Promise<void> {
         const volId = this.normalizeUuid(volumeId)
         if (!volId) {
-            throw new Error(`Invalid volume ID provided: ${volumeId}`)
+            throw ScalewayErrorUtils.createInvalidUUIDError(volumeId, 'volume ID')
         }
         this.logger.debug(`Attaching block volume ${volId} to server ${serverId}`)
         // Determine required instance volumeType based on Block Storage class
-        let volumeTypeForInstance: ScalewayVolumeTypeForInstance = SCALEWAY_VOLUME_TYPES.BLOCK_SSD
+        let volumeTypeForInstance: ScalewayVolumeTypeForInstance = SCALEWAY_STORAGE.VOLUME_TYPES.BLOCK_SSD
         try {
             const vol = await (this.blockClient as unknown as { getVolume: (args: { volumeId: string }) => Promise<unknown> }).getVolume({ volumeId: volId })
             let klass: string | undefined
@@ -316,19 +300,19 @@ export class ScalewayClient {
                 klass = vol.specs?.class
             }
             if (klass === 'sbs') {
-                volumeTypeForInstance = SCALEWAY_VOLUME_TYPES.SBS_VOLUME
+                volumeTypeForInstance = SCALEWAY_STORAGE.VOLUME_TYPES.SBS_VOLUME
             } else {
-                volumeTypeForInstance = SCALEWAY_VOLUME_TYPES.BLOCK_SSD
+                volumeTypeForInstance = SCALEWAY_STORAGE.VOLUME_TYPES.BLOCK_SSD
             }
             this.logger.debug(`Detected block volume class '${klass ?? 'unknown'}' -> instance volume_type '${volumeTypeForInstance}'`)
         } catch (e) {
-            const errorMsg = e instanceof Error ? e.message : String(e)
-            this.logger.warn(`Could not detect block volume class for ${volId}; defaulting to '${SCALEWAY_VOLUME_TYPES.BLOCK_SSD}'. ${errorMsg}`)
+            const errorMsg = ScalewayErrorUtils.extractErrorMessage(e)
+            this.logger.warn(`Could not detect block volume class for ${volId}; defaulting to '${SCALEWAY_STORAGE.VOLUME_TYPES.BLOCK_SSD}'. ${errorMsg}`)
         }
         const client = this.instanceClient as unknown as { attachServerVolume: (args: { serverId: string; volumeId: string; volumeType: 'b_ssd' | 'sbs_volume' }) => Promise<unknown> }
         await client.attachServerVolume({ serverId, volumeId: volId, volumeType: volumeTypeForInstance })
         // Wait until volume shows as in_use before attempting to start the server
-        const timeoutMs = 60_000
+        const timeoutMs = SCALEWAY_TIMEOUTS.VOLUME_ATTACH_TIMEOUT
         const start = Date.now()
         while (true) {
             try {
@@ -422,7 +406,7 @@ export class ScalewayClient {
             const server = await this.instanceClient.getServer({ serverId })
 
             if (!server.server) {
-                throw new Error(`Server with id ${serverId} not found while getting status`)
+                throw ScalewayErrorUtils.createScalewayError(`Server with id ${serverId} not found while getting status`)
             }
 
             this.logger.debug(`Found Scaleway virtual machine state: ${server.server.state}`)
@@ -441,7 +425,7 @@ export class ScalewayClient {
             }
 
         } catch (error) {
-            throw new Error(`Failed to get Scaleway virtual machine status: ${serverId}. Error: ${(error as Error).message}`)
+            throw ScalewayErrorUtils.createScalewayError(`Failed to get Scaleway virtual machine status: ${serverId}. Error: ${ScalewayErrorUtils.extractErrorMessage(error)}`, error)
         }
     }
 
@@ -532,7 +516,7 @@ export class ScalewayClient {
     
         return new Promise<T>((resolve, reject) => {
             const timeoutId = setTimeout(() => {
-                reject(new Error(`Operation timed out after ${timeoutMs} ms`))
+                reject(ScalewayErrorUtils.createScalewayError(`Operation timed out after ${timeoutMs} ms`))
             }, timeoutMs)
     
             promise

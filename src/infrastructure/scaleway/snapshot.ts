@@ -7,6 +7,8 @@ import { AnsibleConfigurator } from '../../configurators/ansible'
 import { createClient, Block } from '@scaleway/sdk'
 import { loadProfileFromConfigurationFile } from '@scaleway/configuration-loader'
 import { InstanceStateV1 } from '../../core/state/state'
+import { ScalewayErrorUtils } from '../../tools/scaleway-error-utils'
+import { SCALEWAY_VALIDATION, SCALEWAY_TIMEOUTS, SCALEWAY_STORAGE, SCALEWAY_API } from '../../providers/scaleway/constants'
 
 // Type guards for external API responses
 function isVolumeResponse(obj: unknown): obj is { specs?: { perfIops?: number } } {
@@ -18,8 +20,8 @@ function isServerData(obj: unknown): obj is { rootVolume?: { volumeId?: string }
 }
 
 export function validateSnapshotName(name: string){
-    if(!/^[a-zA-Z0-9-_]{1,63}$/.test(name)){
-        throw new Error('Invalid snapshot name. It must match [a-zA-Z0-9-_] and length ≤ 63.')
+    if(!ScalewayErrorUtils.isValidSnapshotName(name)){
+        throw ScalewayErrorUtils.createInvalidSnapshotNameError(name)
     }
 }
 
@@ -99,12 +101,13 @@ export async function createDataDiskSnapshot(args: CreateSnapshotArgs): Promise<
         const block = new Block.v1alpha1.API(client)
         await block.getVolume({ volumeId: args.dataDiskId })
     } catch (e) {
-        const msg = String((e as Error).message || e)
-        throw new Error(
+        const normalized = ScalewayErrorUtils.normalizeError(e, 'Data disk volume validation')
+        throw ScalewayErrorUtils.createScalewayError(
             `Data disk volume '${args.dataDiskId}' not found in zone '${args.zone}'. ` +
             `You likely archived/deleted the data disk earlier. ` +
             `Restore a snapshot first (cloudypad snapshot scaleway <name> --restore --name ${args.instanceName}) ` +
-            `or create a new data disk (update the instance with a data-disk size) before snapshotting.\nDetails: ${msg}`
+            `or create a new data disk (update the instance with a data-disk size) before snapshotting.\nDetails: ${normalized.message}`,
+            e
         )
     }
 
@@ -113,7 +116,7 @@ export async function createDataDiskSnapshot(args: CreateSnapshotArgs): Promise<
         projectName: 'CloudyPad-Scaleway-Snapshot',
         stackName: args.instanceName,
     })
-    await client.setConfig({ projectId: args.projectId, region: args.zone.split('-').slice(0,2).join('-'), zone: args.zone })
+    await client.setConfig({ projectId: args.projectId, region: args.zone.split('-').slice(0,SCALEWAY_API.REGION_ZONE_SPLIT_INDEX).join('-'), zone: args.zone })
     const out = await client.up()
     return { snapshotId: out.snapshotId }
 }
@@ -157,7 +160,7 @@ export async function snapshotAndDeleteDataDisk(args: ArchiveAfterSnapshotArgs):
     }
     // Stop and detach
     try {
-        await scwClient.stopInstance(args.instanceServerId, { wait: true, waitTimeoutSeconds: 300 })
+        await scwClient.stopInstance(args.instanceServerId, { wait: true, waitTimeoutSeconds: SCALEWAY_TIMEOUTS.INSTANCE_OPERATION_TIMEOUT })
         try {
             await scwClient.detachDataVolume(args.instanceServerId, args.dataDiskId)
         } catch (eDet: unknown) {
@@ -178,8 +181,8 @@ export async function snapshotAndDeleteDataDisk(args: ArchiveAfterSnapshotArgs):
 
     // Delete with retry on transient in_use/protected_resource errors
     {
-        const maxRetries = 10
-        const delayMs = 3000
+        const maxRetries = SCALEWAY_TIMEOUTS.VOLUME_DELETE_MAX_RETRIES
+        const delayMs = SCALEWAY_TIMEOUTS.VOLUME_DELETE_RETRY_DELAY
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
             try {
                 await scwClient.deleteBlockVolume(args.dataDiskId)
@@ -211,7 +214,7 @@ export async function snapshotAndDeleteDataDisk(args: ArchiveAfterSnapshotArgs):
 
     // Always try to start instance back
     try {
-        await scwClient.startInstance(args.instanceServerId, { wait: true, waitTimeoutSeconds: 300 })
+        await scwClient.startInstance(args.instanceServerId, { wait: true, waitTimeoutSeconds: SCALEWAY_TIMEOUTS.INSTANCE_OPERATION_TIMEOUT })
     } catch (e) {
         logger.error('Failed to start instance after archive flow; please start it manually.', e)
     }
@@ -224,7 +227,7 @@ function programCreateVolumeFromSnapshot(params: { stack: string, snapshotName: 
     return async () => {
         const volName = computeRestoredVolumeResourceName(params.stack, params.snapshotName)
         const snap = await scw.block.getSnapshot({ name: computeSnapshotResourceName(params.stack, params.snapshotName) })
-        const vol = new scw.block.Volume(volName, { name: volName, iops: params.iops ?? 5000, snapshotId: snap.id, tags: ['cloudypad', `stack:${params.stack}`, 'data-disk', `restoredFrom:${params.snapshotName}`] })
+        const vol = new scw.block.Volume(volName, { name: volName, iops: params.iops ?? SCALEWAY_STORAGE.DEFAULT_VOLUME_IOPS, snapshotId: snap.id, tags: [SCALEWAY_STORAGE.CLOUDYPAD_TAGS.CLOUDYPAD, `${SCALEWAY_STORAGE.CLOUDYPAD_TAGS.STACK_PREFIX}${params.stack}`, SCALEWAY_STORAGE.CLOUDYPAD_TAGS.DATA_DISK, `${SCALEWAY_STORAGE.CLOUDYPAD_TAGS.RESTORED_FROM_PREFIX}${params.snapshotName}`] })
         return { newVolumeId: vol.id }
     }
 }
@@ -269,11 +272,11 @@ export async function restoreDataDiskSnapshot(args: RestoreSnapshotArgs): Promis
                 if (desiredIops) logger.debug(`Detected original data disk perfIops=${desiredIops}`)
             }
         } else {
-            logger.info('No previous data disk ID found; using default IOPS (5000) for restored volume')
+            logger.info(`No previous data disk ID found; using default IOPS (${SCALEWAY_STORAGE.DEFAULT_VOLUME_IOPS}) for restored volume`)
         }
     } catch (e) {
         const errorMsg = e instanceof Error ? e.message : String(e)
-        logger.warn(`Could not detect original data disk IOPS; defaulting to 5000. ${errorMsg}`)
+        logger.warn(`Could not detect original data disk IOPS; defaulting to ${SCALEWAY_STORAGE.DEFAULT_VOLUME_IOPS}. ${errorMsg}`)
     }
 
     const volClient = new RestoreVolumeClient({
@@ -281,7 +284,7 @@ export async function restoreDataDiskSnapshot(args: RestoreSnapshotArgs): Promis
         projectName: 'CloudyPad-Scaleway-RestoreVolume',
         stackName: args.instanceName,
     })
-    await volClient.setConfig({ projectId: args.projectId, region: args.zone.split('-').slice(0,2).join('-'), zone: args.zone })
+    await volClient.setConfig({ projectId: args.projectId, region: args.zone.split('-').slice(0,SCALEWAY_API.REGION_ZONE_SPLIT_INDEX).join('-'), zone: args.zone })
     const volOut = await volClient.up()
     const newVolumeIdFull = volOut.newVolumeId // zoned id like fr-par-1/uuid
     const volumeParts = newVolumeIdFull.split('/')
@@ -293,7 +296,7 @@ export async function restoreDataDiskSnapshot(args: RestoreSnapshotArgs): Promis
     const scwClient = new ScalewayClient('scw-attach', { projectId: args.projectId, zone: args.zone })
 
     // Safer path: stop instance for storage operations
-    await scwClient.stopInstance(args.instanceServerId, { wait: true, waitTimeoutSeconds: 300 })
+    await scwClient.stopInstance(args.instanceServerId, { wait: true, waitTimeoutSeconds: SCALEWAY_TIMEOUTS.INSTANCE_OPERATION_TIMEOUT })
 
     // Detach old data disk if provided, then attach new one (tolerate when already not attached)
     if (args.oldDataDiskId) {
