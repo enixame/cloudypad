@@ -3,18 +3,10 @@ import { createClient, Instance, Vpc, Account, Marketplace, Profile, Block } fro
 import { loadProfileFromConfigurationFile } from '@scaleway/configuration-loader'
 import { ScalewayErrorUtils } from '../../tools/scaleway-error-utils'
 import { SCALEWAY_STORAGE, SCALEWAY_TIMEOUTS } from './constants'
+import { ScalewayTypeGuards } from './type-guards'
 
 // Use centralized volume type constants
 type ScalewayVolumeTypeForInstance = typeof SCALEWAY_STORAGE.VOLUME_TYPES[keyof typeof SCALEWAY_STORAGE.VOLUME_TYPES]
-
-// Type guards for API responses
-function isVolumeStatusResponse(obj: unknown): obj is { status?: string } {
-    return typeof obj === 'object' && obj !== null
-}
-
-function isVolumeSpecsResponse(obj: unknown): obj is { specs?: { class?: string } } {
-    return typeof obj === 'object' && obj !== null
-}
 
 
 
@@ -272,7 +264,7 @@ export class ScalewayClient {
         while (true) {
             try {
                 const vol = await (this.blockClient as unknown as { getVolume: (args: { volumeId: string }) => Promise<unknown> }).getVolume({ volumeId })
-                if (isVolumeStatusResponse(vol) && vol.status && vol.status !== 'in_use') break
+                if (ScalewayTypeGuards.volumeStatus(vol) && vol.status !== 'in_use') break
             } catch {
                 // ignore lookup errors transiently
                 break
@@ -296,8 +288,8 @@ export class ScalewayClient {
         try {
             const vol = await (this.blockClient as unknown as { getVolume: (args: { volumeId: string }) => Promise<unknown> }).getVolume({ volumeId: volId })
             let klass: string | undefined
-            if (isVolumeSpecsResponse(vol)) {
-                klass = vol.specs?.class
+            if (ScalewayTypeGuards.volumeSpecs(vol)) {
+                klass = vol.specs.class
             }
             if (klass === 'sbs') {
                 volumeTypeForInstance = SCALEWAY_STORAGE.VOLUME_TYPES.SBS_VOLUME
@@ -317,7 +309,7 @@ export class ScalewayClient {
         while (true) {
             try {
                 const vol = await (this.blockClient as unknown as { getVolume: (args: { volumeId: string }) => Promise<unknown> }).getVolume({ volumeId: volId })
-                if (isVolumeStatusResponse(vol) && vol.status === 'in_use') break
+                if (ScalewayTypeGuards.volumeStatus(vol) && vol.status === 'in_use') break
             } catch {
                 // ignore transient lookup errors
             }

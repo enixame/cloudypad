@@ -10,7 +10,7 @@ export class DummyConfigurator extends AnsibleConfigurator<DummyInstanceStateV1>
         super(args)
     }
 
-    async doConfigure(): Promise<NonNullable<DummyInstanceStateV1['configuration']['output']>> {
+    override async doConfigure(): Promise<NonNullable<DummyInstanceStateV1['configuration']['output']>> {
         this.logger.debug(`Running dummy configurator for instance: ${this.args.instanceName}`)
 
         if(this.args.provisionInput.configurationDelaySeconds && this.args.provisionInput.configurationDelaySeconds > 0){
@@ -27,7 +27,7 @@ export class DummyConfigurator extends AnsibleConfigurator<DummyInstanceStateV1>
         }
     }
 
-    protected async doRunAnsible(inventoryPath: string, playbookPath: string, additionalAnsibleArgs: string[]): Promise<void> {
+    protected override async doRunAnsible(inventoryPath: string, playbookPath: string, additionalAnsibleArgs: string[]): Promise<void> {
         this.logger.debug(`Running dummy Ansible: inventoryPath=${inventoryPath}, playbookPath=${playbookPath}, additionalAnsibleArgs=${JSON.stringify(additionalAnsibleArgs)}`)
     }
 }

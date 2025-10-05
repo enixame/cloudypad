@@ -95,7 +95,7 @@ export class DummyProviderClient extends AbstractProviderClient<DummyInstanceSta
         })
     }
 
-    getStateLoader(): StateLoader {
+    override getStateLoader(): StateLoader {
         return this.getInstanceUpdater().getStateLoader()
     }
 

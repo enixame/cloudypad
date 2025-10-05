@@ -8,16 +8,8 @@ import { createClient, Block } from '@scaleway/sdk'
 import { loadProfileFromConfigurationFile } from '@scaleway/configuration-loader'
 import { InstanceStateV1 } from '../../core/state/state'
 import { ScalewayErrorUtils } from '../../tools/scaleway-error-utils'
-import { SCALEWAY_VALIDATION, SCALEWAY_TIMEOUTS, SCALEWAY_STORAGE, SCALEWAY_API } from '../../providers/scaleway/constants'
-
-// Type guards for external API responses
-function isVolumeResponse(obj: unknown): obj is { specs?: { perfIops?: number } } {
-    return typeof obj === 'object' && obj !== null
-}
-
-function isServerData(obj: unknown): obj is { rootVolume?: { volumeId?: string } } {
-    return typeof obj === 'object' && obj !== null
-}
+import { SCALEWAY_TIMEOUTS, SCALEWAY_STORAGE, SCALEWAY_API } from '../../providers/scaleway/constants'
+import { ScalewayTypeGuards, ScalewayValidators } from '../../providers/scaleway/type-guards'
 
 export function validateSnapshotName(name: string){
     if(!ScalewayErrorUtils.isValidSnapshotName(name)){
@@ -143,7 +135,7 @@ export async function snapshotAndDeleteDataDisk(args: ArchiveAfterSnapshotArgs):
         }
         
         let rootId: string | undefined
-        if (isServerData(srv)) {
+        if (ScalewayTypeGuards.serverWithRootVolume(srv)) {
             rootId = normalize(srv.rootVolume?.volumeId)
         }
         if (rootId && normalize(args.dataDiskId) === rootId) {
@@ -267,8 +259,8 @@ export async function restoreDataDiskSnapshot(args: RestoreSnapshotArgs): Promis
         const scwBlock = new Block.v1alpha1.API(client)
         if (args.oldDataDiskId) {
             const volInfo = await scwBlock.getVolume({ volumeId: args.oldDataDiskId })
-            if (isVolumeResponse(volInfo)) {
-                desiredIops = typeof volInfo.specs?.perfIops === 'number' ? volInfo.specs.perfIops : undefined
+            if (ScalewayTypeGuards.volumeWithIOPS(volInfo)) {
+                desiredIops = volInfo.specs?.perfIops
                 if (desiredIops) logger.debug(`Detected original data disk perfIops=${desiredIops}`)
             }
         } else {

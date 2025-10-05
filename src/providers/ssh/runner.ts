@@ -15,7 +15,7 @@ export class SshInstanceRunner extends AbstractInstanceRunner<SshProvisionInputV
         super(CLOUDYPAD_PROVIDER_SSH, args);
     }
 
-    protected buildSshClientArgs(): SSHClientArgs {
+    protected override buildSshClientArgs(): SSHClientArgs {
         const defaultArgs = super.buildSshClientArgs()
 
         this.logger.debug(`Building Local provider SSH client args for instance ${this.args.instanceName}`)

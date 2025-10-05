@@ -24,7 +24,7 @@ export class ScalewayProvisioner extends AbstractInstanceProvisioner<ScalewayPro
      * Destroy the instance server by running Pulumi stack up with specific configs
      * to remove instance server
      */
-    async destroyInstanceServer(): Promise<ScalewayProvisionOutputV1> {
+    override async destroyInstanceServer(): Promise<ScalewayProvisionOutputV1> {
 
         this.logger.info(`Destroying instance server for ${this.args.instanceName}`)
 

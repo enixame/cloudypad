@@ -74,11 +74,11 @@ export class DummyInstanceRunner extends AbstractInstanceRunner<DummyProvisionIn
         return status.status
     }
 
-    async pairInteractive(): Promise<void> {
+    override async pairInteractive(): Promise<void> {
         this.logger.debug(`Dummy pair interactive operation for instance: ${this.args.instanceName}`)
     }
 
-    async pairSendPin(pin: string, retries?: number, retryDelay?: number): Promise<boolean> {
+    override async pairSendPin(pin: string, retries?: number, retryDelay?: number): Promise<boolean> {
         this.logger.debug(`Dummy pair send pin operation for instance: ${this.args.instanceName} with pin: ${pin}`)
         return true
     }
@@ -88,7 +88,7 @@ export class DummyInstanceRunner extends AbstractInstanceRunner<DummyProvisionIn
      * Returns true is current server status and delay after starting is greater than
      * configured readiness after start time.
      */
-    async isStreamingServerReady(): Promise<boolean> {
+    override async isStreamingServerReady(): Promise<boolean> {
         this.logger.trace(`Checking dummy readiness: ${this.args.instanceName}`)
 
         const status = await this.serverStatus()

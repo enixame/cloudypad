@@ -18,7 +18,7 @@ export class DummyProvisioner extends AbstractInstanceProvisioner<DummyProvision
         this.dummyInfraManager = args.dummyInfraManager
     }
 
-    protected async doDestroyInstanceServer(): Promise<DummyProvisionOutputV1> {
+    protected override async doDestroyInstanceServer(): Promise<DummyProvisionOutputV1> {
         await this.dummyInfraManager.setServerRunningStatus(ServerRunningStatus.Unknown)
 
         return {

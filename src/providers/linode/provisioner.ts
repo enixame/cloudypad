@@ -17,7 +17,7 @@ export class LinodeProvisioner extends AbstractInstanceProvisioner<LinodeProvisi
      * Destroy the instance server by running Pulumi stack up with specific configs
      * to remove instance server
      */
-    async destroyInstanceServer(): Promise<LinodeProvisionOutputV1> {
+    override async destroyInstanceServer(): Promise<LinodeProvisionOutputV1> {
 
         this.logger.info(`Destroying instance server for ${this.args.instanceName}`)
 
