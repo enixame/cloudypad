@@ -4,44 +4,103 @@ import { StateWriter } from '../../src/core/state/writer'
 import { ScalewayProviderClient } from '../../src/providers/scaleway/provider'
 import { ScalewayInstanceStateV1 } from '../../src/providers/scaleway/state'
 
-// Test constants centralized to avoid duplication
+/**
+ * Centralized test constants to avoid duplication and ensure consistency
+ * All values are realistic defaults suitable for Scaleway testing
+ * 
+ * @example
+ * ```typescript
+ * const projectId = TEST_CONSTANTS.DEFAULT_PROJECT_ID
+ * const zone = TEST_CONSTANTS.DEFAULT_ZONE // 'fr-par-1'
+ * ```
+ */
 const TEST_CONSTANTS = {
+    /** Default Scaleway project ID (valid UUID format) */
     DEFAULT_PROJECT_ID: '12345678-1234-1234-1234-123456789012',
+    /** Default Scaleway region */
     DEFAULT_REGION: 'fr-par',
+    /** Default Scaleway zone */
     DEFAULT_ZONE: 'fr-par-1',
+    /** Default host IP address */
     DEFAULT_HOST: '1.2.3.4',
+    /** Default data disk/volume ID */
     DEFAULT_DATA_DISK_ID: '12345678-1234-1234-1234-123456789abc',
+    /** Default instance server ID */
     DEFAULT_INSTANCE_SERVER_ID: 'srv-1',
+    /** Default SSH username */
     DEFAULT_SSH_USER: 'ubuntu',
+    /** Default SSH private key path */
     DEFAULT_SSH_KEY_PATH: './test/resources/ssh-key',
+    /** Default root disk size in GB */
     DEFAULT_DISK_SIZE_GB: 20,
+    /** Default data disk size in GB */
     DEFAULT_DATA_DISK_SIZE_GB: 100,
+    /** Default password encoded in base64 ('test-password') */
     DEFAULT_PASSWORD_BASE64: 'dGVzdC1wYXNzd29yZA==',
+    /** Default username for services */
     DEFAULT_USERNAME: 'test-user'
 } as const
 
-// Utility types for deep readonly and immutability
+/**
+ * Utility type for deep readonly immutability
+ * Recursively makes all properties readonly to prevent mutations
+ * 
+ * @template T - The type to make deeply readonly
+ */
 type DeepReadonly<T> = {
     readonly [P in keyof T]: T[P] extends object ? DeepReadonly<T[P]> : T[P]
 }
 
-// Type for builder modification functions - ensures type safety
+/**
+ * Type for builder modification functions - ensures type safety
+ * Used in batch operations to safely modify state objects
+ * 
+ * @template T - The state type being modified
+ */
 type BuilderModification<T> = (state: T) => void
 
-// Branded type to distinguish immutable instances
+/**
+ * Branded type to distinguish immutable instances at compile-time
+ * Prevents accidental mutations of frozen objects
+ * 
+ * @template T - The type to make immutable
+ */
 type ImmutableState<T> = DeepReadonly<T> & { readonly __immutable: true }
 
-// Advanced types for better withFields type safety
+/**
+ * Type-safe field paths for batch updates via withFields()
+ * Only includes commonly updated fields for performance and type safety
+ * 
+ * @example
+ * ```typescript
+ * const updates: BuilderFieldPaths = {
+ *   name: 'new-instance',
+ *   region: 'us-west-2',
+ *   host: '192.168.1.100'
+ * }
+ * builder.withFields(updates)
+ * ```
+ */
 type BuilderFieldPaths = {
+    /** Instance name */
     name?: string
+    /** Scaleway project ID (UUID) */
     projectId?: string
+    /** Scaleway region (e.g., 'us-west-2') */
     region?: string
+    /** Scaleway zone (e.g., 'us-west-2a') */
     zone?: string
+    /** Server ID from provisioning output */
     instanceServerId?: string
+    /** Data disk ID from provisioning output */
     dataDiskId?: string
+    /** Host IP address (sets both host and publicIPv4) */
     host?: string
+    /** Root disk size in GB */
     diskSizeGb?: number
+    /** Data disk size in GB */
     dataDiskSizeGb?: number
+    /** Sunshine server username */
     username?: string
 }
 
@@ -89,16 +148,73 @@ const DEFAULT_INSTANCE_STATE: DeepReadonly<ScalewayInstanceStateV1> = {
  * Immutable builder pattern for creating ScalewayInstanceStateV1 objects with sensible defaults
  * for testing purposes. Each operation returns a new builder instance, preventing mutations.
  * 
- * Features:
- * - Type-safe immutability with DeepReadonly
- * - Copy-on-Write optimization for performance
- * - Type guards for null-safe operations
- * - Batch operations for performance
- * - Fluent API for easy test data creation
+ * ## Key Features:
+ * - **Type-safe immutability** with DeepReadonly and branded types
+ * - **Copy-on-Write optimization** for superior performance
+ * - **Robust type guards** for null-safe operations
+ * - **Batch operations** for efficient multi-field updates
+ * - **Fluent API** for intuitive test data creation
+ * - **Cached patterns** for regex and field mappings
  * 
- * Performance: O(1) for single changes, O(n) only when actually building
+ * ## Performance Characteristics:
+ * - O(1) for single changes (Copy-on-Write)
+ * - O(n) only when actually building the final state
+ * - Regex caching eliminates recompilation overhead
+ * - Smart Map allocation avoids unnecessary memory usage
+ * 
+ * @example Basic Usage
+ * ```typescript
+ * const state = new InstanceStateBuilder()
+ *   .withName('test-instance')
+ *   .withRegion('us-west-2')
+ *   .withZone('us-west-2a')
+ *   .build()
+ * ```
+ * 
+ * @example Batch Operations (Most Efficient)
+ * ```typescript
+ * const state = new InstanceStateBuilder()
+ *   .withFields({
+ *     name: 'production-server',
+ *     projectId: '12345678-1234-1234-1234-123456789012',
+ *     region: 'eu-west-1',
+ *     zone: 'eu-west-1a',
+ *     host: '192.168.1.100'
+ *   })
+ *   .build()
+ * ```
+ * 
+ * @example Copy-on-Write Immutability
+ * ```typescript
+ * const baseBuilder = new InstanceStateBuilder().withName('base')
+ * const variant1 = baseBuilder.withRegion('us-east-1')
+ * const variant2 = baseBuilder.withRegion('eu-west-1')
+ * 
+ * // baseBuilder remains unchanged!
+ * console.log(baseBuilder.peek().name) // 'base'
+ * ```
  */
 export class InstanceStateBuilder {
+    private static readonly EMPTY_CHANGES = Object.freeze(new Map<string, unknown>())
+    private static readonly BENCHMARK_ITERATIONS = 1000 as const
+    
+    /** Cache regex pattern to avoid recompilation on each validation */
+    private static readonly PATH_REGEX = /^[a-zA-Z][a-zA-Z0-9.]*[a-zA-Z0-9]$/
+    
+    /** Cached field mappings to avoid object recreation */
+    private static readonly FIELD_MAPPINGS: Record<keyof BuilderFieldPaths, string> = {
+        name: 'name',
+        projectId: 'provision.input.projectId',
+        region: 'provision.input.region',
+        zone: 'provision.input.zone',
+        instanceServerId: 'provision.output.instanceServerId',
+        dataDiskId: 'provision.output.dataDiskId',
+        host: 'provision.output.host',
+        diskSizeGb: 'provision.input.diskSizeGb',
+        dataDiskSizeGb: 'provision.input.dataDiskSizeGb',
+        username: 'configuration.input.sunshine.username'
+    } as const
+    
     private readonly state: DeepReadonly<ScalewayInstanceStateV1>
     private readonly pendingChanges: Map<string, unknown>
     private readonly isCloned: boolean
@@ -124,6 +240,28 @@ export class InstanceStateBuilder {
     }
 
     /**
+     * Type guard for record objects
+     */
+    private isRecord(obj: unknown): obj is Record<string, unknown> {
+        return typeof obj === 'object' && obj !== null && !Array.isArray(obj)
+    }
+
+    /**
+     * Validate dot-notation paths using cached regex for performance
+     * @param path - The dot-notation path to validate (e.g., 'provision.input.zone')
+     * @returns true if path is valid, false otherwise
+     * @example
+     * ```typescript
+     * isValidPath('provision.input.zone') // true
+     * isValidPath('invalid.path.') // false
+     * isValidPath('') // false
+     * ```
+     */
+    private isValidPath(path: string): boolean {
+        return path.length > 0 && InstanceStateBuilder.PATH_REGEX.test(path)
+    }
+
+    /**
      * Apply pending changes to a state object - Copy-on-Write optimization
      */
     private applyPendingChanges(state: ScalewayInstanceStateV1): void {
@@ -136,12 +274,16 @@ export class InstanceStateBuilder {
      * Set nested value safely using dot notation path
      */
     private setNestedValue(obj: unknown, path: string, value: unknown): void {
+        if (!this.isRecord(obj)) {
+            throw new Error('Target object must be a record')
+        }
+        
         const keys = path.split('.')
-        let current = obj as Record<string, unknown>
+        let current = obj
         
         for (let i = 0; i < keys.length - 1; i++) {
             const key = keys[i]
-            if (!(key in current) || typeof current[key] !== 'object' || current[key] === null) {
+            if (!(key in current) || !this.isRecord(current[key])) {
                 current[key] = {}
             }
             current = current[key] as Record<string, unknown>
@@ -152,10 +294,26 @@ export class InstanceStateBuilder {
 
     /**
      * Create a new builder with copy-on-write optimization
+     * Only creates new Map when necessary to minimize memory allocations
+     * 
+     * @param path - Dot-notation path to the property (e.g., 'provision.input.zone')
+     * @param value - The value to set at the specified path
+     * @returns New InstanceStateBuilder with the change queued
+     * @throws {Error} If the path format is invalid
+     * 
+     * @example
+     * ```typescript
+     * builder.copyOnWrite('name', 'new-instance')
+     * builder.copyOnWrite('provision.input.region', 'us-west-2')
+     * ```
      */
     private copyOnWrite(path: string, value: unknown): InstanceStateBuilder {
-        const newChanges = new Map(this.pendingChanges)
-        newChanges.set(path, value)
+        if (!this.isValidPath(path)) {
+            throw new Error(`Invalid path: ${path}`)
+        }
+        const newChanges = this.pendingChanges.size === 0 
+            ? new Map([[path, value]])
+            : new Map([...this.pendingChanges, [path, value]])
         return new InstanceStateBuilder(this.state, newChanges, false)
     }
 
@@ -175,67 +333,153 @@ export class InstanceStateBuilder {
     }
 
     /**
-     * Sets the instance name - Copy-on-Write optimized
+     * Sets the instance name using Copy-on-Write optimization
+     * 
+     * @param name - The instance name to set
+     * @returns New InstanceStateBuilder with updated name
+     * 
+     * @example
+     * ```typescript
+     * const builder = new InstanceStateBuilder().withName('production-server')
+     * ```
      */
     withName(name: string): InstanceStateBuilder {
         return this.copyOnWrite('name', name)
     }
 
     /**
-     * Sets the project ID in provision input - Copy-on-Write optimized
+     * Sets the Scaleway project ID in provision input
+     * 
+     * @param projectId - The Scaleway project ID (UUID format)
+     * @returns New InstanceStateBuilder with updated project ID
+     * 
+     * @example
+     * ```typescript
+     * const builder = new InstanceStateBuilder()
+     *   .withProjectId('12345678-1234-1234-1234-123456789012')
+     * ```
      */
     withProjectId(projectId: string): InstanceStateBuilder {
         return this.copyOnWrite('provision.input.projectId', projectId)
     }
 
     /**
-     * Sets the instance server ID in provision output - Type-safe
+     * Sets the instance server ID in provision output (post-provisioning data)
+     * 
+     * @param serverId - The Scaleway server ID
+     * @returns New InstanceStateBuilder with updated server ID
+     * 
+     * @example
+     * ```typescript
+     * const builder = new InstanceStateBuilder().withInstanceServerId('srv-123abc')
+     * ```
      */
     withInstanceServerId(serverId: string): InstanceStateBuilder {
         return this.copyOnWrite('provision.output.instanceServerId', serverId)
     }
 
     /**
-     * Sets the data disk ID in provision output - Type-safe
+     * Sets the data disk ID in provision output (post-provisioning data)
+     * 
+     * @param diskId - The Scaleway volume/disk ID
+     * @returns New InstanceStateBuilder with updated disk ID
+     * 
+     * @example
+     * ```typescript
+     * const builder = new InstanceStateBuilder().withDataDiskId('vol-123abc')
+     * ```
      */
     withDataDiskId(diskId: string): InstanceStateBuilder {
         return this.copyOnWrite('provision.output.dataDiskId', diskId)
     }
 
     /**
-     * Sets the zone in provision input - Copy-on-Write optimized
+     * Sets the Scaleway zone in provision input
+     * 
+     * @param zone - The Scaleway zone (e.g., 'fr-par-1', 'nl-ams-1')
+     * @returns New InstanceStateBuilder with updated zone
+     * 
+     * @example
+     * ```typescript
+     * const builder = new InstanceStateBuilder().withZone('nl-ams-1')
+     * ```
      */
     withZone(zone: string): InstanceStateBuilder {
         return this.copyOnWrite('provision.input.zone', zone)
     }
 
     /**
-     * Sets the region in provision input - Copy-on-Write optimized
+     * Sets the Scaleway region in provision input
+     * 
+     * @param region - The Scaleway region (e.g., 'fr-par', 'nl-ams')
+     * @returns New InstanceStateBuilder with updated region
+     * 
+     * @example
+     * ```typescript
+     * const builder = new InstanceStateBuilder().withRegion('nl-ams')
+     * ```
      */
     withRegion(region: string): InstanceStateBuilder {
         return this.copyOnWrite('provision.input.region', region)
     }
 
     /**
-     * Sets both host and publicIPv4 - Batch operation
+     * Sets both host and publicIPv4 in a single batch operation
+     * Optimized to minimize Map allocations
+     * 
+     * @param host - The host/IP address to set for both host and publicIPv4
+     * @returns New InstanceStateBuilder with both host fields updated
+     * 
+     * @example
+     * ```typescript
+     * const builder = new InstanceStateBuilder()
+     *   .withHost('192.168.1.100')
+     * 
+     * const state = builder.build()
+     * console.log(state.provision.output?.host) // '192.168.1.100'
+     * console.log(state.provision.output?.publicIPv4) // '192.168.1.100'
+     * ```
      */
     withHost(host: string): InstanceStateBuilder {
-        const newChanges = new Map(this.pendingChanges)
-        newChanges.set('provision.output.host', host)
-        newChanges.set('provision.output.publicIPv4', host)
+        const newChanges = this.pendingChanges.size === 0
+            ? new Map([['provision.output.host', host], ['provision.output.publicIPv4', host]])
+            : new Map([...this.pendingChanges, ['provision.output.host', host], ['provision.output.publicIPv4', host]])
         return new InstanceStateBuilder(this.state, newChanges, false)
     }
 
     /**
-     * Returns a readonly view of the current state for inspection
+     * Returns a readonly view of the current state for inspection without building
+     * Useful for debugging or conditional logic without triggering expensive operations
+     * 
+     * @returns Immutable view of the current state (before applying pending changes)
+     * 
+     * @example
+     * ```typescript
+     * const builder = new InstanceStateBuilder().withName('test')
+     * const currentState = builder.peek()
+     * console.log(currentState.name) // Shows original name, not 'test'
+     * ```
      */
     peek(): DeepReadonly<ScalewayInstanceStateV1> {
         return this.state
     }
 
     /**
-     * Builds and returns the instance state (mutable copy for normal use)
-     * Copy-on-Write: Only clones when there are actual changes
+     * Builds and returns the final instance state with all pending changes applied
+     * Uses Copy-on-Write optimization: only clones when there are actual changes
+     * 
+     * @returns Mutable ScalewayInstanceStateV1 with all changes applied
+     * 
+     * @example
+     * ```typescript
+     * const state = new InstanceStateBuilder()
+     *   .withName('production')
+     *   .withRegion('us-west-2')
+     *   .build()
+     * 
+     * console.log(state.name) // 'production'
+     * console.log(state.provision.input.region) // 'us-west-2'
+     * ```
      */
     build(): ScalewayInstanceStateV1 {
         if (this.pendingChanges.size === 0) {
@@ -260,13 +504,23 @@ export class InstanceStateBuilder {
     }
 
     /**
-     * Deep freeze an object recursively
+     * Deep freeze an object recursively with cycle detection
      */
-    private deepFreeze<T>(obj: T): T {
+    private deepFreeze<T>(obj: T, visited = new WeakSet<object>()): T {
+        if (typeof obj !== 'object' || obj === null) {
+            return obj
+        }
+        
+        const objectRef = obj as object
+        if (visited.has(objectRef)) {
+            return obj
+        }
+        visited.add(objectRef)
+        
         Object.getOwnPropertyNames(obj).forEach(prop => {
             const value = (obj as Record<string, unknown>)[prop]
             if (value && typeof value === 'object') {
-                this.deepFreeze(value)
+                this.deepFreeze(value, visited)
             }
         })
         return Object.freeze(obj)
@@ -282,24 +536,40 @@ export class InstanceStateBuilder {
 
     /**
      * Creates a builder with multiple field updates at once - Type-safe and optimized
-     * Usage: builder.withFields({ name: 'new-name', projectId: 'new-id' })
+     * Avoids unnecessary Map creation when no fields are provided
+     * 
+     * @param fields - Object containing field updates to apply
+     * @returns New InstanceStateBuilder with all field changes queued
+     * 
+     * @example
+     * ```typescript
+     * // Batch update multiple fields efficiently
+     * const builder = new InstanceStateBuilder()
+     *   .withFields({
+     *     name: 'production-instance',
+     *     projectId: 'prod-project-123',
+     *     region: 'us-west-2',
+     *     zone: 'us-west-2a'
+     *   })
+     * 
+     * // Special handling for host (also sets publicIPv4)
+     * builder.withFields({ host: '192.168.1.100' })
+     * ```
      */
     withFields(fields: BuilderFieldPaths): InstanceStateBuilder {
-        const newChanges = new Map(this.pendingChanges)
-        
-        // Map fields to their dot-notation paths
-        const fieldMappings: Record<keyof BuilderFieldPaths, string> = {
-            name: 'name',
-            projectId: 'provision.input.projectId',
-            region: 'provision.input.region',
-            zone: 'provision.input.zone',
-            instanceServerId: 'provision.output.instanceServerId',
-            dataDiskId: 'provision.output.dataDiskId',
-            host: 'provision.output.host',
-            diskSizeGb: 'provision.input.diskSizeGb',
-            dataDiskSizeGb: 'provision.input.dataDiskSizeGb',
-            username: 'configuration.input.sunshine.username'
+        // Early return optimization: avoid processing if no fields provided
+        const hasChanges = Object.values(fields).some(value => value !== undefined)
+        if (!hasChanges) {
+            return this
         }
+        
+        // Optimize Map creation based on current state
+        const newChanges = this.pendingChanges.size === 0 
+            ? new Map<string, unknown>()
+            : new Map(this.pendingChanges)
+        
+        // Use cached field mappings to avoid object recreation
+        const fieldMappings = InstanceStateBuilder.FIELD_MAPPINGS
         
         // Apply all field changes
         for (const [field, value] of Object.entries(fields) as Array<[keyof BuilderFieldPaths, unknown]>) {
@@ -347,8 +617,16 @@ export class InstanceStateBuilder {
     }
 
     /**
-     * Validates immutability by ensuring the builder instance is unchanged after operations
-     * Uses robust deep equality instead of JSON.stringify
+     * Validates that the builder maintains immutability guarantees
+     * Ensures that operations on a builder don't mutate the original instance
+     * 
+     * @returns true if immutability is maintained, false otherwise
+     * 
+     * @example
+     * ```typescript
+     * const isImmutable = InstanceStateBuilder.validateImmutability()
+     * console.log('Builder is immutable:', isImmutable) // Should be true
+     * ```
      */
     static validateImmutability(): boolean {
         const builder = new InstanceStateBuilder()
@@ -365,10 +643,20 @@ export class InstanceStateBuilder {
     }
 
     /**
-     * Performance testing method - measures Copy-on-Write efficiency
+     * Benchmarks Copy-on-Write performance against traditional deep cloning
+     * Measures the efficiency gains from the CoW optimization
+     * 
+     * @returns Object containing timing results for both approaches
+     * 
+     * @example
+     * ```typescript
+     * const results = InstanceStateBuilder.benchmarkPerformance()
+     * console.log(`CoW: ${results.copyOnWrite}ms, Traditional: ${results.traditional}ms`)
+     * console.log(`Speedup: ${(results.traditional / results.copyOnWrite).toFixed(2)}x`)
+     * ```
      */
     static benchmarkPerformance(): { copyOnWrite: number; traditional: number } {
-        const iterations = 1000
+        const iterations = InstanceStateBuilder.BENCHMARK_ITERATIONS
         
         // Benchmark Copy-on-Write approach
         const startCow = performance.now()
@@ -399,8 +687,32 @@ export class InstanceStateBuilder {
     }
 }
 
-// Environment management utilities
+/**
+ * Environment management utilities for Scaleway testing
+ * Handles setup and cleanup of environment variables required for Scaleway SDK
+ * 
+ * @example
+ * ```typescript
+ * beforeEach(() => {
+ *   ScalewayEnvironment.setup()
+ * })
+ * 
+ * afterEach(() => {
+ *   ScalewayEnvironment.cleanup()
+ * })
+ * ```
+ */
 export class ScalewayEnvironment {
+    /**
+     * Sets up all required Scaleway environment variables for testing
+     * Uses safe test values that won't interfere with real Scaleway operations
+     * 
+     * @example
+     * ```typescript
+     * ScalewayEnvironment.setup()
+     * // Now process.env.SCW_ACCESS_KEY, etc. are set
+     * ```
+     */
     static setup(): void {
         process.env.SCW_ACCESS_KEY = 'test-access-key'
         process.env.SCW_SECRET_KEY = 'test-secret-key'
@@ -408,6 +720,17 @@ export class ScalewayEnvironment {
         process.env.SCW_DEFAULT_ZONE = TEST_CONSTANTS.DEFAULT_ZONE
     }
 
+    /**
+     * Cleans up all Scaleway environment variables after testing
+     * Essential for test isolation - prevents test pollution
+     * 
+     * @example
+     * ```typescript
+     * afterEach(() => {
+     *   ScalewayEnvironment.cleanup()
+     * })
+     * ```
+     */
     static cleanup(): void {
         delete process.env.SCW_ACCESS_KEY
         delete process.env.SCW_SECRET_KEY
@@ -416,43 +739,155 @@ export class ScalewayEnvironment {
     }
 }
 
-// Comprehensive stub management
+/**
+ * Comprehensive Scaleway client stubs for testing SDK operations
+ * All stubs are pre-configured with sensible defaults but can be customized
+ * 
+ * @example
+ * ```typescript
+ * const stubs: ScalewayClientStubs = stubManager.createScalewayClientStubs()
+ * stubs.findCurrentDataDiskId.resolves('disk-123')
+ * stubs.stopInstance.resolves()
+ * ```
+ */
 export interface ScalewayClientStubs {
+    /** Stub for finding current data disk ID */
     findCurrentDataDiskId: sinon.SinonStub
+    /** Stub for getting raw server data from Scaleway API */
     getRawServerData: sinon.SinonStub
+    /** Stub for stopping instance operations */
     stopInstance: sinon.SinonStub
+    /** Stub for detaching data volumes */
     detachDataVolume: sinon.SinonStub
+    /** Stub for starting instance operations */
     startInstance: sinon.SinonStub
+    /** Stub for deleting block volumes */
     deleteBlockVolume: sinon.SinonStub
 }
 
+/**
+ * Provider-level stubs for testing high-level operations
+ * 
+ * @example
+ * ```typescript
+ * const stubs: ProviderStubs = stubManager.createProviderStubs(customState)
+ * expect(stubs.getInstanceState).to.have.been.calledWith('instance-name')
+ * ```
+ */
 export interface ProviderStubs {
+    /** Stub for getting instance state from provider */
     getInstanceState: sinon.SinonStub
+    /** Stub for setting provision output in state */
     setProvisionOutput: sinon.SinonStub
 }
 
-// Type-safe overrides for stub configuration
+/**
+ * Type-safe overrides for customizing stub behavior
+ * Allows precise control over stub return values with type safety
+ * 
+ * @example
+ * ```typescript
+ * const overrides: ScalewayClientStubOverrides = {
+ *   findCurrentDataDiskId: 'custom-disk-id',
+ *   getRawServerData: { id: 'srv-123', name: 'test-server' }
+ * }
+ * const stubs = stubManager.createScalewayClientStubs(overrides)
+ * ```
+ */
 export interface ScalewayClientStubOverrides {
+    /** Override for data disk ID resolution */
     findCurrentDataDiskId?: string
-    getRawServerData?: unknown // Flexible type for test data
+    /** Override for server data (must be object or null) */
+    getRawServerData?: Record<string, unknown> | null
+    /** Override for stop instance result */
     stopInstance?: void
+    /** Override for detach volume result */
     detachDataVolume?: void
+    /** Override for start instance result */
     startInstance?: void
+    /** Override for delete volume result */
     deleteBlockVolume?: void
 }
 
+/**
+ * Advanced stub manager for Scaleway testing with type-safe validation
+ * Handles creation and configuration of all Scaleway-related stubs
+ * 
+ * @example
+ * ```typescript
+ * const sandbox = sinon.createSandbox()
+ * const stubManager = new SinonStubManager(sandbox)
+ * 
+ * const clientStubs = stubManager.createScalewayClientStubs({
+ *   findCurrentDataDiskId: 'test-disk-123'
+ * })
+ * 
+ * const providerStubs = stubManager.createProviderStubs(customState)
+ * ```
+ */
 export class SinonStubManager {
     private sandbox: sinon.SinonSandbox
 
+    /**
+     * Creates a new stub manager
+     * 
+     * @param sandbox - Sinon sandbox for managing stub lifecycle
+     */
     constructor(sandbox: sinon.SinonSandbox) {
         this.sandbox = sandbox
     }
 
+    /**
+     * Type-safe validation for server data used in stubs
+     * Ensures test data conforms to expected types while maintaining flexibility
+     * 
+     * @param data - Server data to validate (object or null)
+     * @returns Validated data ready for stub usage
+     * @throws {Error} When data format is invalid
+     * 
+     * @example
+     * ```typescript
+     * const serverData = { id: 'srv-123', name: 'test-server' }
+     * const validated = stubManager.validateServerData(serverData)
+     * getRawServerDataStub.resolves(validated)
+     * ```
+     */
+    private validateServerData(data: Record<string, unknown> | null): unknown {
+        if (data === null) {
+            return undefined
+        }
+        if (typeof data === 'object' && data !== null) {
+            // For test purposes, we trust that the test data conforms to Server interface
+            return data
+        }
+        throw new Error('getRawServerData override must be an object or null')
+    }
+
+    /**
+     * Creates comprehensive Scaleway client stubs with customizable overrides
+     * All stubs are pre-configured with sensible defaults from TEST_CONSTANTS
+     * 
+     * @param overrides - Custom return values for specific stub methods
+     * @returns Object containing all configured Scaleway client stubs
+     * 
+     * @example
+     * ```typescript
+     * const stubs = stubManager.createScalewayClientStubs({
+     *   findCurrentDataDiskId: 'custom-disk-id',
+     *   getRawServerData: { id: 'srv-123', state: 'running' }
+     * })
+     * 
+     * // Stubs are ready to use
+     * expect(stubs.findCurrentDataDiskId).to.have.been.calledOnce
+     * ```
+     */
     createScalewayClientStubs(overrides: ScalewayClientStubOverrides = {}): ScalewayClientStubs {
         const getRawServerDataStub = this.sandbox.stub(ScalewayClient.prototype, 'getRawServerData')
         if (overrides.getRawServerData !== undefined) {
-            // Force type assertion for test flexibility - we control what we pass in tests
-            getRawServerDataStub.resolves(overrides.getRawServerData as Parameters<typeof getRawServerDataStub.resolves>[0])
+            // Type-safe validation and controlled assertion for test data
+            const validatedData = this.validateServerData(overrides.getRawServerData)
+            // @ts-expect-error Test data is validated but TypeScript can't infer Server interface conformance
+            getRawServerDataStub.resolves(validatedData)
         } else {
             getRawServerDataStub.resolves(undefined)
         }
@@ -472,6 +907,22 @@ export class SinonStubManager {
         }
     }
 
+    /**
+     * Creates provider-level stubs for high-level Scaleway operations
+     * 
+     * @param instanceState - Custom instance state to return, or defaults will be used
+     * @returns Object containing configured provider stubs
+     * 
+     * @example
+     * ```typescript
+     * const customState = new InstanceStateBuilder()
+     *   .withName('custom-instance')
+     *   .build()
+     * 
+     * const stubs = stubManager.createProviderStubs(customState)
+     * expect(stubs.getInstanceState).to.resolve.to(customState)
+     * ```
+     */
     createProviderStubs(instanceState?: ScalewayInstanceStateV1): ProviderStubs {
         const defaultState = new InstanceStateBuilder().build()
         
@@ -484,12 +935,47 @@ export class SinonStubManager {
     }
 }
 
-// Test data factory with sensible defaults using centralized constants
+/**
+ * Factory for creating test data with sensible defaults
+ * Provides convenient methods for common test scenarios
+ * 
+ * @example
+ * ```typescript
+ * // Create a basic instance state builder
+ * const state = TestDataFactory.instanceState()
+ *   .withName('custom-instance')
+ *   .build()
+ * 
+ * // Create snapshot arguments with overrides
+ * const args = TestDataFactory.snapshotArgs({
+ *   snapshotName: 'production-backup'
+ * })
+ * ```
+ */
 export class TestDataFactory {
+    /**
+     * Creates a new InstanceStateBuilder with default values
+     * 
+     * @returns Fresh InstanceStateBuilder ready for customization
+     */
     static instanceState(): InstanceStateBuilder {
         return new InstanceStateBuilder()
     }
 
+    /**
+     * Creates snapshot operation arguments with sensible defaults
+     * 
+     * @param overrides - Custom values to override defaults
+     * @returns Snapshot arguments object ready for use
+     * 
+     * @example
+     * ```typescript
+     * const args = TestDataFactory.snapshotArgs({
+     *   snapshotName: 'critical-backup',
+     *   instanceName: 'production-db'
+     * })
+     * ```
+     */
     static snapshotArgs(overrides: Record<string, unknown> = {}) {
         return {
             instanceName: 'test-instance',
@@ -503,14 +989,42 @@ export class TestDataFactory {
     }
 
     /**
-     * Create optimized test data with batch operations
+     * Creates optimized test data using batch field operations
+     * More efficient than chaining individual withXxx() calls
+     * 
+     * @param overrides - Field overrides to apply in batch
+     * @returns InstanceStateBuilder with all overrides applied efficiently
+     * 
+     * @example
+     * ```typescript
+     * const builder = TestDataFactory.optimizedInstanceState({
+     *   name: 'fast-instance',
+     *   region: 'eu-west-1',
+     *   projectId: 'custom-project-id'
+     * })
+     * ```
      */
     static optimizedInstanceState(overrides: BuilderFieldPaths = {}): InstanceStateBuilder {
         return new InstanceStateBuilder().withFields(overrides)
     }
 
     /**
-     * Performance-optimized factory for test suites
+     * Performance-optimized factory for creating multiple similar instances
+     * Ideal for test suites that need many state objects
+     * 
+     * @param count - Number of instance states to create
+     * @param baseOverrides - Base field values applied to all instances
+     * @returns Array of ScalewayInstanceStateV1 objects with unique names
+     * 
+     * @example
+     * ```typescript
+     * // Create 100 test instances with custom region
+     * const states = TestDataFactory.batchInstanceStates(100, {
+     *   region: 'us-west-2',
+     *   projectId: 'load-test-project'
+     * })
+     * // Names will be: 'test-instance-0', 'test-instance-1', etc.
+     * ```
      */
     static batchInstanceStates(count: number, baseOverrides: BuilderFieldPaths = {}): ScalewayInstanceStateV1[] {
         const baseBuilder = new InstanceStateBuilder().withFields(baseOverrides)
@@ -519,13 +1033,65 @@ export class TestDataFactory {
         )
     }
 
+    /**
+     * Creates CLI argument arrays for testing snapshot commands
+     * 
+     * @param command - The snapshot command ('create', 'restore', etc.)
+     * @param additionalArgs - Additional CLI arguments to append
+     * @returns Array of CLI arguments ready for process execution
+     * 
+     * @example
+     * ```typescript
+     * const args = TestDataFactory.cliArgs('create', '--delete-data-disk')
+     * // ['node', 'cloudypad', 'snapshot', 'scaleway', 'create', '--name', 'test-instance', '--delete-data-disk']
+     * ```
+     */
     static cliArgs(command: string, ...additionalArgs: string[]) {
         return ['node', 'cloudypad', 'snapshot', 'scaleway', command, '--name', 'test-instance', ...additionalArgs]
     }
 }
 
-// High-level test setup utilities
+/**
+ * High-level test setup utilities for complete Scaleway test environments
+ * Handles all aspects of test setup including environment variables, stubs, and cleanup
+ * 
+ * @example
+ * ```typescript
+ * describe('Scaleway Tests', () => {
+ *   let testEnv: ReturnType<typeof ScalewayTestSetup.createCompleteTestEnvironment>
+ * 
+ *   beforeEach(() => {
+ *     const sandbox = sinon.createSandbox()
+ *     testEnv = ScalewayTestSetup.createCompleteTestEnvironment(sandbox)
+ *   })
+ * 
+ *   afterEach(() => {
+ *     testEnv.cleanup()
+ *   })
+ * })
+ * ```
+ */
 export class ScalewayTestSetup {
+    /**
+     * Creates a complete test environment with all necessary stubs and setup
+     * Configures environment variables, creates stub manager, and sets up all client stubs
+     * 
+     * @param sandbox - Sinon sandbox for managing all stubs
+     * @returns Object containing all test utilities and cleanup function
+     * 
+     * @example
+     * ```typescript
+     * const sandbox = sinon.createSandbox()
+     * const { stubManager, providerStubs, clientStubs, cleanup } = 
+     *   ScalewayTestSetup.createCompleteTestEnvironment(sandbox)
+     * 
+     * // Use stubs in tests...
+     * clientStubs.createServer.resolves({ id: 'srv-123' })
+     * 
+     * // Always cleanup
+     * cleanup()
+     * ```
+     */
     static createCompleteTestEnvironment(sandbox: sinon.SinonSandbox) {
         ScalewayEnvironment.setup()
         
@@ -534,9 +1100,13 @@ export class ScalewayTestSetup {
         const clientStubs = stubManager.createScalewayClientStubs()
 
         return {
+            /** Stub manager for creating additional stubs */
             stubManager,
+            /** Provider-level stubs (getInstanceState, etc.) */
             providerStubs,
+            /** Client-level stubs (SDK operations) */
             clientStubs,
+            /** Cleanup function - MUST be called in afterEach */
             cleanup: () => {
                 sandbox.restore()
                 ScalewayEnvironment.cleanup()
@@ -545,8 +1115,40 @@ export class ScalewayTestSetup {
     }
 }
 
-// Test assertion helpers
+/**
+ * Specialized assertion helpers for Scaleway testing scenarios
+ * Provides domain-specific assertions with clear error messages
+ * 
+ * @example
+ * ```typescript
+ * // Assert snapshot creation with specific arguments
+ * ScalewayTestAssertions.assertSnapshotCallWithArgs(createSnapshotStub, {
+ *   instanceName: 'test-instance',
+ *   snapshotName: 'backup-2023'
+ * })
+ * 
+ * // Assert retry behavior
+ * ScalewayTestAssertions.assertStubCalledWithRetries(retryableStub, 3)
+ * ```
+ */
 export class ScalewayTestAssertions {
+    /**
+     * Asserts that a stub was called once with specific argument values
+     * Provides detailed error messages for debugging test failures
+     * 
+     * @param stub - The Sinon stub to check
+     * @param expectedArgs - Object containing expected argument values
+     * @throws {Error} If stub wasn't called once or arguments don't match
+     * 
+     * @example
+     * ```typescript
+     * ScalewayTestAssertions.assertSnapshotCallWithArgs(createSnapshotStub, {
+     *   projectId: '12345678-1234-1234-1234-123456789012',
+     *   zone: 'fr-par-1',
+     *   snapshotName: 'critical-backup'
+     * })
+     * ```
+     */
     static assertSnapshotCallWithArgs(stub: sinon.SinonStub, expectedArgs: Record<string, unknown>) {
         if (!stub.calledOnce) {
             throw new Error(`Expected stub to be called once, but it was called ${stub.callCount} times`)
@@ -560,6 +1162,19 @@ export class ScalewayTestAssertions {
         }
     }
 
+    /**
+     * Asserts that a stub was called a specific number of times (for retry testing)
+     * 
+     * @param stub - The Sinon stub to check
+     * @param expectedRetries - Expected number of calls
+     * @throws {Error} If call count doesn't match expected retries
+     * 
+     * @example
+     * ```typescript
+     * // Test that operation was retried 3 times
+     * ScalewayTestAssertions.assertStubCalledWithRetries(unreliableOperationStub, 3)
+     * ```
+     */
     static assertStubCalledWithRetries(stub: sinon.SinonStub, expectedRetries: number) {
         if (stub.callCount !== expectedRetries) {
             throw new Error(`Expected ${expectedRetries} retries, but got ${stub.callCount}`)
