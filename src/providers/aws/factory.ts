@@ -1,6 +1,7 @@
 import { InstanceProvisioner } from "../../core/provisioner";
 import { InstanceRunner } from "../../core/runner";
 import { CommonConfigurationInputV1 } from "../../core/state/state";
+import { CoreConfig } from "../../core/config";
 import { AwsProvisioner } from "./provisioner";
 import { AwsInstanceRunner } from "./runner";
 import { AwsInstanceStateV1, AwsProvisionInputV1, AwsProvisionOutputV1 } from "./state";
@@ -37,4 +38,18 @@ export class AwsRunnerFactory extends AbstractRunnerFactory<AwsInstanceStateV1> 
             configurationInput: configurationInput
         });
     }
+}
+
+/**
+ * Create an AWS provisioner instance
+ */
+export function createAwsProvisioner(coreConfig: CoreConfig): AwsProvisionerFactory {
+    return new AwsProvisionerFactory(coreConfig)
+}
+
+/**
+ * Create an AWS runner instance  
+ */
+export function createAwsRunner(coreConfig: CoreConfig): AwsRunnerFactory {
+    return new AwsRunnerFactory(coreConfig)
 }

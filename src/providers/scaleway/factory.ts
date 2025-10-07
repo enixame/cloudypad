@@ -2,6 +2,7 @@ import { AbstractProvisionerFactory, AbstractRunnerFactory } from "../../core/su
 import { InstanceProvisioner } from "../../core/provisioner";
 import { InstanceRunner } from "../../core/runner";
 import { CommonConfigurationInputV1 } from "../../core/state/state";
+import { CoreConfig } from "../../core/config";
 import { ScalewayProvisioner } from "./provisioner";
 import { ScalewayInstanceRunner } from "./runner";
 import { ScalewayInstanceStateV1, ScalewayProvisionInputV1, ScalewayProvisionOutputV1 } from "./state";
@@ -37,4 +38,18 @@ export class ScalewayRunnerFactory extends AbstractRunnerFactory<ScalewayInstanc
             configurationInput: configurationInput
         });
     }
+}
+
+/**
+ * Create a Scaleway provisioner instance
+ */
+export function createScalewayProvisioner(coreConfig: CoreConfig): ScalewayProvisionerFactory {
+    return new ScalewayProvisionerFactory(coreConfig)
+}
+
+/**
+ * Create a Scaleway runner instance  
+ */
+export function createScalewayRunner(coreConfig: CoreConfig): ScalewayRunnerFactory {
+    return new ScalewayRunnerFactory(coreConfig)
 }

@@ -8,13 +8,78 @@
     "build": "rm -rf dist/ && tsc -p tsconfig.build.json && npm run copy-ansible",
     "copy-ansible": "cp -r ansible dist/ansible"
   },
-  "main": "./src/index.js",
-  "types": "./src/index.d.ts",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
   "bin": {
-    "cloudypad": "./src/cli/main.js"
+    "cloudypad": "./dist/cli/main.js"
   },
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./core": {
+      "import": "./dist/core/index.mjs",
+      "require": "./dist/core/index.js",
+      "types": "./dist/core/index.d.ts"
+    },
+    "./providers/scaleway": {
+      "import": "./dist/providers/scaleway/index.mjs",
+      "require": "./dist/providers/scaleway/index.js",
+      "types": "./dist/providers/scaleway/index.d.ts"
+    },
+    "./providers/aws": {
+      "import": "./dist/providers/aws/index.mjs",
+      "require": "./dist/providers/aws/index.js",
+      "types": "./dist/providers/aws/index.d.ts"
+    },
+    "./providers/azure": {
+      "import": "./dist/providers/azure/index.mjs",
+      "require": "./dist/providers/azure/index.js",
+      "types": "./dist/providers/azure/index.d.ts"
+    },
+    "./providers/gcp": {
+      "import": "./dist/providers/gcp/index.mjs",
+      "require": "./dist/providers/gcp/index.js",
+      "types": "./dist/providers/gcp/index.d.ts"
+    },
+    "./validation": {
+      "import": "./dist/validation/index.mjs",
+      "require": "./dist/validation/index.js",
+      "types": "./dist/validation/index.d.ts"
+    },
+    "./errors": {
+      "import": "./dist/errors/index.mjs",
+      "require": "./dist/errors/index.js",
+      "types": "./dist/errors/index.d.ts"
+    },
+    "./package.json": "./package.json"
+  },
+  "sideEffects": false,
   "author": "Pierre Beucher <pierre@crafteo.io>",
   "license": "ISC",
+  "keywords": [
+    "cloud-gaming",
+    "gaming",
+    "cloud",
+    "infrastructure",
+    "provisioning",
+    "scaleway",
+    "aws",
+    "azure",
+    "gcp",
+    "tree-shaking",
+    "esm"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/enixame/cloudypad.git"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "devDependencies": {
     "@eslint/js": "^9.18.0",
     "@types/chai": "^5.2.2",

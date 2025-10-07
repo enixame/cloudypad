@@ -71,3 +71,7 @@ export class ConfigLoader {
     
 }
 
+/**
+ * Default core configuration for Cloudy Pad
+ */
+export const DEFAULT_CORE_CONFIG: CoreConfig = new ConfigLoader().loadConfig()

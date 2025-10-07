@@ -13,6 +13,7 @@ export {
   type VersionedValidationConfig,
   getLatestSchemaVersion, 
   isSupportedVersion,
+  getVersionInfo,
   SCHEMA_EVOLUTION_HISTORY 
 } from './versioning'
 export { 

@@ -30,6 +30,9 @@ export const CLOUDYPAD_PROVIDER_LIST = [
     CLOUDYPAD_PROVIDER_LINODE
 ] as const
 
+// Alias for backward compatibility
+export const SUPPORTED_PROVIDERS = CLOUDYPAD_PROVIDER_LIST
+
 export const CLOUDYPAD_CONFIGURATOR_ANSIBLE = "ansible"
 export const CLOUDYPAD_CONFIGURATOR_LIST = [ CLOUDYPAD_CONFIGURATOR_ANSIBLE ] as const
 

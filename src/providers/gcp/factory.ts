@@ -1,6 +1,7 @@
 import { InstanceProvisioner } from "../../core/provisioner";
 import { InstanceRunner } from "../../core/runner";
 import { CommonConfigurationInputV1 } from "../../core/state/state";
+import { CoreConfig } from "../../core/config";
 import { GcpProvisioner } from "./provisioner";
 import { GcpInstanceRunner } from "./runner";
 import { GcpInstanceStateV1, GcpProvisionInputV1, GcpProvisionOutputV1 } from "./state";
@@ -37,4 +38,18 @@ export class GcpRunnerFactory extends AbstractRunnerFactory<GcpInstanceStateV1> 
             configurationInput: configurationInput
         });
     }
+}
+
+/**
+ * Create a GCP provisioner instance
+ */
+export function createGcpProvisioner(coreConfig: CoreConfig): GcpProvisionerFactory {
+    return new GcpProvisionerFactory(coreConfig)
+}
+
+/**
+ * Create a GCP runner instance  
+ */
+export function createGcpRunner(coreConfig: CoreConfig): GcpRunnerFactory {
+    return new GcpRunnerFactory(coreConfig)
 }
