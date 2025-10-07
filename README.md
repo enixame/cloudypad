@@ -54,24 +54,47 @@ Cloudy Pad lets you **deploy a Cloud gaming instance on your own servers, machin
 
 ## Snapshots (Scaleway data disk)
 
-Create a snapshot of your Scaleway data disk and optionally restore it later:
+Create and manage snapshots of your Scaleway data disk for backup and cost optimization:
 
-- Create: `cloudypad snapshot scaleway nightly-2025-10-03`
-- Restore and auto-approve: `cloudypad snapshot scaleway nightly-2025-10-03 --restore --yes`
+### Basic Commands
+- **Create snapshot**: `cloudypad snapshot scaleway <snapshot-name> --name <instance-name>`
+- **Restore snapshot**: `cloudypad snapshot scaleway <snapshot-name> --restore --yes --name <instance-name>`
 
-Cost reduction options (Scaleway):
+### Cost Optimization Options
 
-- After restore, delete the previous data disk to save costs:
-  - `cloudypad snapshot scaleway nightly-2025-10-03 --restore --yes --delete-old-disk`
-- Archive-only mode: create snapshot and delete the current data disk (keeps only the snapshot):
-  - `cloudypad snapshot scaleway nightly-2025-10-03 --yes --delete-data-disk`
+**After Restore:**
+- Delete old data disk: `--delete-old-disk` (saves storage costs)
+- Delete snapshot after restore: `--delete-snapshot` (cleanup after successful restore)
+- Combined: `cloudypad snapshot scaleway backup-2025 --restore --yes --delete-old-disk --delete-snapshot --name my-instance`
 
-Notes:
+**Archive Mode (Snapshot + Delete):**
+- Create snapshot and delete current data disk: `cloudypad snapshot scaleway archive-2025 --yes --delete-data-disk --name my-instance`
 
-- Snapshots incur additional cost on your cloud bill.
-- On successful restore, the snapshot is deleted automatically.
-- If restore fails at any step, the snapshot is kept for manual recovery and a rollback is attempted.
-- Destructive options `--delete-old-disk` and `--delete-data-disk` require `--yes` and will permanently delete volumes; use with caution.
+### Examples
+
+```bash
+# Create a backup snapshot
+cloudypad snapshot scaleway nightly-backup --name scaleway-gaming
+
+# Restore and clean up (delete old disk and snapshot)  
+cloudypad snapshot scaleway nightly-backup --restore --yes --delete-old-disk --delete-snapshot --name scaleway-gaming
+
+# Archive current data disk (snapshot + delete disk to save costs)
+cloudypad snapshot scaleway weekly-archive --yes --delete-data-disk --name scaleway-gaming
+```
+
+### Performance & Safety
+
+- **Fast restore**: ~30 seconds (data-disk role only, no full reconfiguration)
+- **Zero-orphan architecture**: Uses persistent Pulumi stacks to prevent resource leaks
+- **Safety checks**: Root volume protection, automatic validation, rollback on failure
+- **Cost control**: All destructive operations require `--yes` flag
+
+### Notes
+
+- Snapshots incur storage costs (~€0.05/GB/month on Scaleway)
+- Restore preserves original disk IOPS settings
+- Failed operations keep snapshots for manual recovery
 
 ## Have a question ? Found a bug ?
 
