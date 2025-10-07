@@ -4,14 +4,14 @@
  */
 
 import { z, ZodError } from 'zod'
-import type { ScalewayProjectId, ScalewayRegion, ScalewayZone, ScalewayCommercialType, ScalewayClientArgs } from './branded'
-import type { ValidationConfig } from './validation-config'
-import { silentValidationLogger } from './validation-config'
-import { normalizeScalewayInput, DEFAULT_NORMALIZATION } from '../validation/normalization'
-import { mapValidationError, formatErrorsForCLI } from '../validation/error-mapping'
-import { zoneToRegion } from '../validation/region-mapping'
-import { type SchemaVersion, getLatestSchemaVersion } from '../validation/versioning'
-import { migrateSchema, canMigrate } from '../validation/adapters'
+import type { ScalewayProjectId, ScalewayRegion, ScalewayZone, ScalewayCommercialType, ScalewayClientArgs } from '../types/branded'
+import type { ValidationConfig } from './config'
+import { silentValidationLogger } from './config'
+import { normalizeScalewayInput, DEFAULT_NORMALIZATION } from './normalization'
+import { mapValidationError, formatErrorsForCLI } from './error-mapping'
+import { zoneToRegion } from './region-mapping'
+import { type SchemaVersion, getLatestSchemaVersion } from './versioning'
+import { migrateSchema, canMigrate } from './adapters'
 
 // ---------------- Zod schemas ----------------
 

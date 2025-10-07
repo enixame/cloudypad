@@ -12,7 +12,7 @@ import {
   getLatestSchemaVersion,
   type ScalewayClientRawArgs
 } from './validation'
-import type { ExtendedValidationConfig } from './types/validation-elegant'
+import type { ExtendedValidationConfig } from './validation/schemas'
 
 // Use centralized volume type constants
 type ScalewayVolumeTypeForInstance = typeof SCALEWAY_STORAGE.VOLUME_TYPES[keyof typeof SCALEWAY_STORAGE.VOLUME_TYPES]

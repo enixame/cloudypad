@@ -1,7 +1,7 @@
 /**
  * Helper functions for converting strings to Scaleway branded types
  * These provide a safe way to convert validated strings to branded types
- * NOTE: This file is deprecated - use validation-elegant.ts schemas instead
+ * NOTE: This file is deprecated - use validation/schemas.ts schemas instead
  */
 
 import type { ScalewayProjectId, ScalewayRegion, ScalewayZone, ScalewayCommercialType } from './branded'

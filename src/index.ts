@@ -8,29 +8,24 @@ export { InstanceManager } from "./core/manager"
 export { CloudypadClient } from "./core/client"
 export { InstanceInitializer } from "./core/initializer"
 
-// Scaleway branded types - public API
+// Core branded types - public API
 export type { 
-  ScalewayProjectId, 
-  ScalewayRegion, 
-  ScalewayZone, 
-  ScalewayCommercialType,
-  ScalewayClientArgs 
-} from './providers/scaleway/types/branded';
-
-// Validation - public API (limited exports)
-export type { 
-  ValidationConfig, 
-  ValidationMode, 
-  ValidationLogger,
-  SchemaVersion 
-} from './providers/scaleway/validation';
+  UUID, 
+  IPv4Address, 
+  InstanceName, 
+  DotNotationPath,
+  Brand 
+} from './core/types/branded';
 
 export { 
-  getDefaultValidationConfig,
-  consoleValidationLogger,
-  silentValidationLogger,
-  getLatestSchemaVersion
-} from './providers/scaleway/validation';
+  CoreBrandedTypeCreators 
+} from './core/types/branded';
 
-// Scaleway client
-export { ScalewayClient } from './providers/scaleway/sdk-client';
+// Core validation - public API
+export { 
+  CoreValidators,
+  CORE_VALIDATION_PATTERNS 
+} from './core/validation/patterns';
+
+// Provider-specific exports should be imported directly from providers
+// Example: import { ScalewayClient } from 'cloudypad/providers/scaleway'

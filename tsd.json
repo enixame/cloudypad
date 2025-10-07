@@ -1,6 +1,6 @@
 {
   "typingsFile": "./src/index.d.ts",
-  "testFiles": ["./test/types/*.test-d.ts"],
+  "testFiles": ["./test/unit/providers/scaleway/*.test-d.ts"],
   "compilerOptions": {
     "module": "node16",
     "target": "es2022",

@@ -11,8 +11,8 @@ export const SCALEWAY_VALIDATION_PATTERNS = {
     /** Scaleway snapshot name validation (alphanumeric, dash, underscore, max 63 chars) */
     SNAPSHOT_NAME: /^[a-zA-Z0-9-_]{1,63}$/,
     
-    /** Scaleway commercial type pattern (e.g., GP1-XS, DEV1-M) */
-    COMMERCIAL_TYPE: /^[A-Z]+[0-9]+-[A-Z]+$/,
+    /** Scaleway commercial type pattern (e.g., GPU3-S, RENDER-S, L4-1-24G) */
+    COMMERCIAL_TYPE: /^[A-Z0-9]+(-[A-Z0-9]+)*$/,
     
     /** Scaleway region pattern (e.g., fr-par, nl-ams) */
     REGION: /^[a-z]{2}-[a-z]{3,4}$/,

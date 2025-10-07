@@ -3,7 +3,7 @@ import { ScalewayPulumiClient, PulumiStackConfigScaleway, ScalewayPulumiOutput }
 import { AbstractInstanceProvisioner, InstanceProvisionerArgs } from '../../core/provisioner'
 import { ScalewayProvisionInputV1, ScalewayProvisionOutputV1 } from './state'
 import { ScalewayClient } from './sdk-client'
-import { ScalewayProjectIdSchema, ScalewayRegionSchema, ScalewayZoneSchema, ScalewayCommercialTypeSchema } from './types/validation-elegant'
+import { ScalewayProjectIdSchema, ScalewayRegionSchema, ScalewayZoneSchema, ScalewayCommercialTypeSchema } from './validation/schemas'
 
 export type ScalewayProvisionerArgs = InstanceProvisionerArgs<ScalewayProvisionInputV1, ScalewayProvisionOutputV1>
 

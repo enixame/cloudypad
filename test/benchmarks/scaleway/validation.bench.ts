@@ -4,7 +4,7 @@
  */
 
 import { performance } from 'perf_hooks';
-import { validateScalewayClientArgs } from '../../../src/providers/scaleway/types/validation-elegant';
+import { validateScalewayClientArgs } from '../../../src/providers/scaleway/validation/schemas';
 import { getDefaultValidationConfig } from '../../../src/providers/scaleway/validation';
 
 // Performance baselines (to be adjusted based on target hardware)

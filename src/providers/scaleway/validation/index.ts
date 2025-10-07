@@ -3,9 +3,9 @@
  * Only exposes the validateScalewayClientArgs function and configuration types
  */
 
-export { validateScalewayClientArgs } from '../types/validation-elegant'
-export type { ValidationConfig, ValidationMode, ValidationLogger } from '../types/validation-config'
-export { getDefaultValidationConfig, consoleValidationLogger, silentValidationLogger } from '../types/validation-config'
+export { validateScalewayClientArgs } from './schemas'
+export type { ValidationConfig, ValidationMode, ValidationLogger } from './config'
+export { getDefaultValidationConfig, consoleValidationLogger, silentValidationLogger } from './config'
 export { normalizeScalewayInput, DEFAULT_NORMALIZATION, type NormalizationOptions } from './normalization'
 export { mapValidationError, formatErrorsForCLI, type FriendlyError } from './error-mapping'
 export { 

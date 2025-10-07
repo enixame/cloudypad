@@ -5,8 +5,8 @@
 
 import { describe, it } from 'mocha';
 import { expect } from 'chai';
-import { validateScalewayClientArgs } from '../../../src/providers/scaleway/types/validation-elegant';
-import { getDefaultValidationConfig } from '../../../src/providers/scaleway/validation';
+import { validateScalewayClientArgs } from '../../../../../src/providers/scaleway/validation/schemas';
+import { getDefaultValidationConfig } from '../../../../../src/providers/scaleway/validation';
 
 describe('Golden error message tests', () => {
   const testConfig = {

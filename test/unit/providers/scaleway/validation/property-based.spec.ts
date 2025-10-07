@@ -6,8 +6,8 @@
 import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import { expect } from 'chai';
-import { zoneToRegion, validateZoneRegionConsistency } from '../../../src/providers/scaleway/validation/region-mapping';
-import { validateUUID, validateRegion, validateZone } from '../../../src/providers/scaleway/validation/regex-defense';
+import { zoneToRegion, validateZoneRegionConsistency } from '../../../../../src/providers/scaleway/validation/region-mapping';
+import { validateUUID, validateRegion, validateZone } from '../../../../../src/providers/scaleway/validation/regex-defense';
 
 describe('Property-based validation tests', () => {
   describe('Zone-Region consistency invariants', () => {

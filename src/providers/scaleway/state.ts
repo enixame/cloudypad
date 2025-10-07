@@ -2,6 +2,8 @@ import { z } from "zod"
 import { CommonProvisionOutputV1Schema, CommonProvisionInputV1Schema, InstanceStateV1Schema, InstanceInputs } from "../../core/state/state"
 import { CLOUDYPAD_PROVIDER_SCALEWAY } from "../../core/const"
 import { GenericStateParser } from "../../core/state/parser"
+import { CoreValidators } from "../../core/validation/patterns"
+import { SCALEWAY_VALIDATION_PATTERNS } from "./validation/patterns"
 
 const ScalewayProvisionOutputV1Schema = CommonProvisionOutputV1Schema.extend({
     instanceServerName: z.string().describe("Scaleway instance server name").optional(),
@@ -14,25 +16,25 @@ const ScalewayProvisionInputV1Schema = CommonProvisionInputV1Schema.extend({
     projectId: z.string()
         .describe("Scaleway Project ID")
         .refine(
-            (val) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val),
+            (val) => CoreValidators.isValidUUID(val),
             { message: "Invalid Scaleway project ID format (must be a valid UUID)" }
         ),
     region: z.string()
         .describe("Scaleway region")
         .refine(
-            (val) => /^[a-z]{2}-[a-z]{3,4}$/.test(val),
+            (val) => SCALEWAY_VALIDATION_PATTERNS.REGION.test(val),
             { message: "Invalid Scaleway region format (e.g., 'fr-par', 'nl-ams')" }
         ),
     zone: z.string()
         .describe("Scaleway zone")
         .refine(
-            (val) => /^[a-z]{2}-[a-z]{3,4}-\d$/.test(val),
+            (val) => SCALEWAY_VALIDATION_PATTERNS.ZONE.test(val),
             { message: "Invalid Scaleway zone format (e.g., 'fr-par-1', 'nl-ams-1')" }
         ),
     instanceType: z.string()
         .describe("Scaleway instance type")
         .refine(
-            (val) => /^[A-Z0-9]+(-[A-Z0-9]+)*$/.test(val),
+            (val) => SCALEWAY_VALIDATION_PATTERNS.COMMERCIAL_TYPE.test(val),
             { message: "Invalid Scaleway commercial type format (e.g., 'GPU3-S', 'RENDER-S', 'L4-1-24G')" }
         ),
     deleteInstanceServerOnStop: z.boolean().describe("Whether instance server should be deleted on instance stop and re-created on next start").optional(),

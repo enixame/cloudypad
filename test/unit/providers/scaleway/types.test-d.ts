@@ -10,7 +10,7 @@ import type {
   ScalewayZone, 
   ScalewayCommercialType,
   ScalewayClientArgs 
-} from '../../src/providers/scaleway/types/branded';
+} from '../../../../src/providers/scaleway/types/branded';
 
 // Test branded type safety - should prevent type mixing
 declare const projectId: ScalewayProjectId;
