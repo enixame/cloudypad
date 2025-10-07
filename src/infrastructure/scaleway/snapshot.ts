@@ -391,59 +391,7 @@ export interface StackOperationOptions {
     timeoutSeconds?: number
 }
 
-/**
- * Anti-orphan strategy for Pulumi stack management
- * Prevents orphaned resources by using consistent cleanup patterns
- */
-export class OrphanPreventionStrategy {
-    constructor(private readonly stackName: string) {}
 
-    /**
-     * Execute operation with orphan prevention
-     */
-    async executeWithPreventionV1<T>(
-        operation: () => Promise<T>,
-        options: StackOperationOptions = {}
-    ): Promise<T> {
-        const config = {
-            cleanupBefore: true,
-            cleanupAfter: false,
-            usePersistentStack: true,
-            timeoutSeconds: SCALEWAY_TIMEOUTS.PULUMI_VOLUME_DELETE_TIMEOUT,
-            ...options
-        }
-
-        const stackManager = new PulumiStackManager()
-        
-        if (config.cleanupBefore) {
-            try {
-                await stackManager.cleanupOrphanedStack('CloudyPad-Scaleway-RestoreVolume', this.stackName)
-            } catch (e) {
-                const logger = getLogger('orphan-prevention')
-                logger.warn('Pre-operation cleanup encountered issues (continuing)', e)
-            }
-        }
-
-        try {
-            const result = await operation()
-            
-            if (config.cleanupAfter) {
-                await stackManager.cleanupOrphanedStack('CloudyPad-Scaleway-RestoreVolume', this.stackName)
-            }
-            
-            return result
-        } catch (error) {
-            // Always cleanup on failure to prevent orphans
-            try {
-                await stackManager.cleanupOrphanedStack('CloudyPad-Scaleway-RestoreVolume', this.stackName)
-            } catch (cleanupError) {
-                const logger = getLogger('orphan-prevention')
-                logger.warn('Post-failure cleanup failed', cleanupError)
-            }
-            throw error
-        }
-    }
-}
 
 // Pulumi program to create a snapshot for an existing Block Volume
 export function computeSnapshotResourceName(stack: string, snapshotName: string){
