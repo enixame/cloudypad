@@ -5,41 +5,75 @@ import { ScalewayProviderClient } from '../../src/providers/scaleway/provider'
 import { ScalewayInstanceStateV1 } from '../../src/providers/scaleway/state'
 
 /**
- * Centralized test constants to avoid duplication and ensure consistency
- * All values are realistic defaults suitable for Scaleway testing
+ * Centralized configuration system to eliminate magic numbers and improve reusability
+ * Hierarchical configuration with performance, defaults, and limits sections
  * 
  * @example
  * ```typescript
- * const projectId = TEST_CONSTANTS.DEFAULT_PROJECT_ID
- * const zone = TEST_CONSTANTS.DEFAULT_ZONE // 'fr-par-1'
+ * const iterations = CLOUDYPAD_CONFIG.PERFORMANCE.BENCHMARK_ITERATIONS
+ * const defaultRegion = CLOUDYPAD_CONFIG.DEFAULTS.REGION
+ * const maxRetries = CLOUDYPAD_CONFIG.LIMITS.MAX_RETRIES
  * ```
  */
-const TEST_CONSTANTS = {
-    /** Default Scaleway project ID (valid UUID format) */
-    DEFAULT_PROJECT_ID: '12345678-1234-1234-1234-123456789012',
-    /** Default Scaleway region */
-    DEFAULT_REGION: 'fr-par',
-    /** Default Scaleway zone */
-    DEFAULT_ZONE: 'fr-par-1',
-    /** Default host IP address */
-    DEFAULT_HOST: '1.2.3.4',
-    /** Default data disk/volume ID */
-    DEFAULT_DATA_DISK_ID: '12345678-1234-1234-1234-123456789abc',
-    /** Default instance server ID */
-    DEFAULT_INSTANCE_SERVER_ID: 'srv-1',
-    /** Default SSH username */
-    DEFAULT_SSH_USER: 'ubuntu',
-    /** Default SSH private key path */
-    DEFAULT_SSH_KEY_PATH: './test/resources/ssh-key',
-    /** Default root disk size in GB */
-    DEFAULT_DISK_SIZE_GB: 20,
-    /** Default data disk size in GB */
-    DEFAULT_DATA_DISK_SIZE_GB: 100,
-    /** Default password encoded in base64 ('test-password') */
-    DEFAULT_PASSWORD_BASE64: 'dGVzdC1wYXNzd29yZA==',
-    /** Default username for services */
-    DEFAULT_USERNAME: 'test-user'
+const CLOUDYPAD_CONFIG = {
+    /** Performance-related configuration */
+    PERFORMANCE: {
+        /** Number of iterations for benchmark tests */
+        BENCHMARK_ITERATIONS: 1000,
+        /** Maximum retry attempts for operations */
+        MAX_RETRIES: 3,
+        /** Timeout in milliseconds for async operations */
+        TIMEOUT_MS: 5000,
+        /** Debounce delay for rapid operations */
+        DEBOUNCE_MS: 100
+    },
+    /** Default values for test scenarios */
+    DEFAULTS: {
+        /** Default Scaleway project ID (valid UUID format) */
+        PROJECT_ID: '12345678-1234-1234-1234-123456789012',
+        /** Default Scaleway region */
+        REGION: 'fr-par',
+        /** Default Scaleway zone */
+        ZONE: 'fr-par-1',
+        /** Default host IP address */
+        HOST: '1.2.3.4',
+        /** Default data disk/volume ID */
+        DATA_DISK_ID: '12345678-1234-1234-1234-123456789abc',
+        /** Default instance server ID */
+        INSTANCE_SERVER_ID: 'srv-1',
+        /** Default SSH username */
+        SSH_USER: 'ubuntu',
+        /** Default SSH private key path */
+        SSH_KEY_PATH: './test/resources/ssh-key',
+        /** Default root disk size in GB */
+        DISK_SIZE_GB: 20,
+        /** Default data disk size in GB */
+        DATA_DISK_SIZE_GB: 100,
+        /** Default password encoded in base64 ('test-password') */
+        PASSWORD_BASE64: 'dGVzdC1wYXNzd29yZA==',
+        /** Default username for services */
+        USERNAME: 'test-user',
+        /** Default instance name */
+        INSTANCE_NAME: 'test-instance'
+    },
+    /** Validation limits and constraints */
+    LIMITS: {
+        /** Maximum path length for dot-notation paths */
+        MAX_PATH_LENGTH: 255,
+        /** Maximum instance name length */
+        MAX_NAME_LENGTH: 63,
+        /** Minimum instance name length */
+        MIN_NAME_LENGTH: 1,
+        /** Minimum disk size in GB */
+        MIN_DISK_SIZE: 10,
+        /** Maximum disk size in GB */
+        MAX_DISK_SIZE: 1000,
+        /** Maximum number of pending changes in builder */
+        MAX_PENDING_CHANGES: 100
+    }
 } as const
+
+
 
 /**
  * Utility type for deep readonly immutability
@@ -107,29 +141,29 @@ type BuilderFieldPaths = {
 // Type guard utilities
 type ProvisionOutput = NonNullable<ScalewayInstanceStateV1['provision']['output']>
 
-// Default instance state - immutable reference using centralized constants
+// Default instance state - immutable reference using centralized configuration
 const DEFAULT_INSTANCE_STATE: DeepReadonly<ScalewayInstanceStateV1> = {
     version: '1' as const,
-    name: 'test-instance',
+    name: CLOUDYPAD_CONFIG.DEFAULTS.INSTANCE_NAME,
     provision: {
         provider: 'scaleway' as const,
         input: {
-            projectId: TEST_CONSTANTS.DEFAULT_PROJECT_ID,
-            region: TEST_CONSTANTS.DEFAULT_REGION,
-            zone: TEST_CONSTANTS.DEFAULT_ZONE,
+            projectId: CLOUDYPAD_CONFIG.DEFAULTS.PROJECT_ID,
+            region: CLOUDYPAD_CONFIG.DEFAULTS.REGION,
+            zone: CLOUDYPAD_CONFIG.DEFAULTS.ZONE,
             ssh: { 
-                user: TEST_CONSTANTS.DEFAULT_SSH_USER, 
-                privateKeyPath: TEST_CONSTANTS.DEFAULT_SSH_KEY_PATH 
+                user: CLOUDYPAD_CONFIG.DEFAULTS.SSH_USER, 
+                privateKeyPath: CLOUDYPAD_CONFIG.DEFAULTS.SSH_KEY_PATH 
             },
             instanceType: 'GPU',
-            diskSizeGb: TEST_CONSTANTS.DEFAULT_DISK_SIZE_GB,
-            dataDiskSizeGb: TEST_CONSTANTS.DEFAULT_DATA_DISK_SIZE_GB
+            diskSizeGb: CLOUDYPAD_CONFIG.DEFAULTS.DISK_SIZE_GB,
+            dataDiskSizeGb: CLOUDYPAD_CONFIG.DEFAULTS.DATA_DISK_SIZE_GB
         },
         output: {
-            host: TEST_CONSTANTS.DEFAULT_HOST,
-            publicIPv4: TEST_CONSTANTS.DEFAULT_HOST,
-            dataDiskId: TEST_CONSTANTS.DEFAULT_DATA_DISK_ID,
-            instanceServerId: TEST_CONSTANTS.DEFAULT_INSTANCE_SERVER_ID
+            host: CLOUDYPAD_CONFIG.DEFAULTS.HOST,
+            publicIPv4: CLOUDYPAD_CONFIG.DEFAULTS.HOST,
+            dataDiskId: CLOUDYPAD_CONFIG.DEFAULTS.DATA_DISK_ID,
+            instanceServerId: CLOUDYPAD_CONFIG.DEFAULTS.INSTANCE_SERVER_ID
         }
     },
     configuration: {
@@ -137,12 +171,78 @@ const DEFAULT_INSTANCE_STATE: DeepReadonly<ScalewayInstanceStateV1> = {
         input: {
             sunshine: {
                 enable: true,
-                passwordBase64: TEST_CONSTANTS.DEFAULT_PASSWORD_BASE64,
-                username: TEST_CONSTANTS.DEFAULT_USERNAME
+                passwordBase64: CLOUDYPAD_CONFIG.DEFAULTS.PASSWORD_BASE64,
+                username: CLOUDYPAD_CONFIG.DEFAULTS.USERNAME
             }
         }
     }
 } as const
+
+/**
+ * Unified validation system to eliminate pattern repetition and improve reusability
+ * Centralized patterns and validators for consistent validation across the codebase
+ * 
+ * @example
+ * ```typescript
+ * const isValid = ValidationUtils.isValidUUID('12345678-1234-1234-1234-123456789012')
+ * const validatedPath = ValidationUtils.validatePath('provision.input.region')
+ * ```
+ */
+class ValidationUtils {
+    /** Cached regex patterns to avoid recompilation */
+    static readonly PATTERNS = {
+        PATH: /^[a-zA-Z][a-zA-Z0-9.]*[a-zA-Z0-9]$/,
+        UUID: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+        IP: /^((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)\.?\b){4}$/,
+        INSTANCE_NAME: /^[a-zA-Z][a-zA-Z0-9-]*[a-zA-Z0-9]$/,
+        REGION: /^[a-z]{2}-[a-z]{3,4}-\d$/
+    } as const
+
+    /**
+     * Validates dot-notation paths (e.g., 'provision.input.region')
+     * @param path - Path to validate
+     * @returns true if valid, false otherwise
+     */
+    static isValidPath(path: string): boolean {
+        return path.length > 0 && this.PATTERNS.PATH.test(path)
+    }
+
+    /**
+     * Validates UUID format (RFC 4122)
+     * @param uuid - UUID string to validate
+     * @returns true if valid UUID format
+     */
+    static isValidUUID(uuid: string): boolean {
+        return this.PATTERNS.UUID.test(uuid)
+    }
+
+    /**
+     * Validates IPv4 address format
+     * @param ip - IP address to validate
+     * @returns true if valid IPv4 format
+     */
+    static isValidIP(ip: string): boolean {
+        return this.PATTERNS.IP.test(ip)
+    }
+
+    /**
+     * Validates instance name format
+     * @param name - Instance name to validate
+     * @returns true if valid instance name
+     */
+    static isValidInstanceName(name: string): boolean {
+        return name.length > 0 && name.length <= 63 && this.PATTERNS.INSTANCE_NAME.test(name)
+    }
+
+    /**
+     * Validates Scaleway region format (e.g., 'fr-par-1', 'nl-ams-1')
+     * @param region - Region to validate
+     * @returns true if valid region format
+     */
+    static isValidRegion(region: string): boolean {
+        return this.PATTERNS.REGION.test(region)
+    }
+}
 
 /**
  * Immutable builder pattern for creating ScalewayInstanceStateV1 objects with sensible defaults
@@ -196,10 +296,10 @@ const DEFAULT_INSTANCE_STATE: DeepReadonly<ScalewayInstanceStateV1> = {
  */
 export class InstanceStateBuilder {
     private static readonly EMPTY_CHANGES = Object.freeze(new Map<string, unknown>())
-    private static readonly BENCHMARK_ITERATIONS = 1000 as const
+    private static readonly BENCHMARK_ITERATIONS = CLOUDYPAD_CONFIG.PERFORMANCE.BENCHMARK_ITERATIONS
     
     /** Cache regex pattern to avoid recompilation on each validation */
-    private static readonly PATH_REGEX = /^[a-zA-Z][a-zA-Z0-9.]*[a-zA-Z0-9]$/
+    private static readonly PATH_REGEX = ValidationUtils.PATTERNS.PATH
     
     /** Cached field mappings to avoid object recreation */
     private static readonly FIELD_MAPPINGS: Record<keyof BuilderFieldPaths, string> = {
@@ -247,7 +347,7 @@ export class InstanceStateBuilder {
     }
 
     /**
-     * Validate dot-notation paths using cached regex for performance
+     * Validate dot-notation paths using unified validation system
      * @param path - The dot-notation path to validate (e.g., 'provision.input.zone')
      * @returns true if path is valid, false otherwise
      * @example
@@ -258,7 +358,7 @@ export class InstanceStateBuilder {
      * ```
      */
     private isValidPath(path: string): boolean {
-        return path.length > 0 && InstanceStateBuilder.PATH_REGEX.test(path)
+        return ValidationUtils.isValidPath(path)
     }
 
     /**
@@ -299,7 +399,7 @@ export class InstanceStateBuilder {
      * @param path - Dot-notation path to the property (e.g., 'provision.input.zone')
      * @param value - The value to set at the specified path
      * @returns New InstanceStateBuilder with the change queued
-     * @throws {Error} If the path format is invalid
+     * @throws {Error} If the path format is invalid or limits exceeded
      * 
      * @example
      * ```typescript
@@ -309,8 +409,15 @@ export class InstanceStateBuilder {
      */
     private copyOnWrite(path: string, value: unknown): InstanceStateBuilder {
         if (!this.isValidPath(path)) {
-            throw new Error(`Invalid path: ${path}`)
+            throw new Error(`Invalid path format: ${path}`)
         }
+        if (path.length > CLOUDYPAD_CONFIG.LIMITS.MAX_PATH_LENGTH) {
+            throw new Error(`Path too long: ${path.length} > ${CLOUDYPAD_CONFIG.LIMITS.MAX_PATH_LENGTH}`)
+        }
+        if (this.pendingChanges.size >= CLOUDYPAD_CONFIG.LIMITS.MAX_PENDING_CHANGES) {
+            throw new Error(`Too many pending changes: ${this.pendingChanges.size} >= ${CLOUDYPAD_CONFIG.LIMITS.MAX_PENDING_CHANGES}`)
+        }
+        
         const newChanges = this.pendingChanges.size === 0 
             ? new Map([[path, value]])
             : new Map([...this.pendingChanges, [path, value]])
@@ -334,9 +441,11 @@ export class InstanceStateBuilder {
 
     /**
      * Sets the instance name using Copy-on-Write optimization
+     * Validates name format and length according to configuration limits
      * 
      * @param name - The instance name to set
      * @returns New InstanceStateBuilder with updated name
+     * @throws {Error} If name format or length is invalid
      * 
      * @example
      * ```typescript
@@ -344,14 +453,23 @@ export class InstanceStateBuilder {
      * ```
      */
     withName(name: string): InstanceStateBuilder {
+        if (!ValidationUtils.isValidInstanceName(name)) {
+            throw new Error(`Invalid instance name format: ${name}`)
+        }
+        if (name.length < CLOUDYPAD_CONFIG.LIMITS.MIN_NAME_LENGTH || 
+            name.length > CLOUDYPAD_CONFIG.LIMITS.MAX_NAME_LENGTH) {
+            throw new Error(`Instance name length ${name.length} not in range [${CLOUDYPAD_CONFIG.LIMITS.MIN_NAME_LENGTH}, ${CLOUDYPAD_CONFIG.LIMITS.MAX_NAME_LENGTH}]`)
+        }
         return this.copyOnWrite('name', name)
     }
 
     /**
      * Sets the Scaleway project ID in provision input
+     * Validates UUID format to prevent invalid project IDs
      * 
      * @param projectId - The Scaleway project ID (UUID format)
      * @returns New InstanceStateBuilder with updated project ID
+     * @throws {Error} If project ID is not a valid UUID
      * 
      * @example
      * ```typescript
@@ -360,6 +478,9 @@ export class InstanceStateBuilder {
      * ```
      */
     withProjectId(projectId: string): InstanceStateBuilder {
+        if (!ValidationUtils.isValidUUID(projectId)) {
+            throw new Error(`Invalid project ID format (must be UUID): ${projectId}`)
+        }
         return this.copyOnWrite('provision.input.projectId', projectId)
     }
 
@@ -656,7 +777,7 @@ export class InstanceStateBuilder {
      * ```
      */
     static benchmarkPerformance(): { copyOnWrite: number; traditional: number } {
-        const iterations = InstanceStateBuilder.BENCHMARK_ITERATIONS
+        const iterations = CLOUDYPAD_CONFIG.PERFORMANCE.BENCHMARK_ITERATIONS
         
         // Benchmark Copy-on-Write approach
         const startCow = performance.now()
@@ -716,8 +837,8 @@ export class ScalewayEnvironment {
     static setup(): void {
         process.env.SCW_ACCESS_KEY = 'test-access-key'
         process.env.SCW_SECRET_KEY = 'test-secret-key'
-        process.env.SCW_DEFAULT_PROJECT_ID = TEST_CONSTANTS.DEFAULT_PROJECT_ID
-        process.env.SCW_DEFAULT_ZONE = TEST_CONSTANTS.DEFAULT_ZONE
+        process.env.SCW_DEFAULT_PROJECT_ID = CLOUDYPAD_CONFIG.DEFAULTS.PROJECT_ID
+        process.env.SCW_DEFAULT_ZONE = CLOUDYPAD_CONFIG.DEFAULTS.ZONE
     }
 
     /**
@@ -894,7 +1015,7 @@ export class SinonStubManager {
 
         return {
             findCurrentDataDiskId: this.sandbox.stub(ScalewayClient.prototype, 'findCurrentDataDiskId')
-                .resolves(overrides.findCurrentDataDiskId ?? TEST_CONSTANTS.DEFAULT_DATA_DISK_ID),
+                .resolves(overrides.findCurrentDataDiskId ?? CLOUDYPAD_CONFIG.DEFAULTS.DATA_DISK_ID),
             getRawServerData: getRawServerDataStub,
             stopInstance: this.sandbox.stub(ScalewayClient.prototype, 'stopInstance')
                 .resolves(overrides.stopInstance),
@@ -979,11 +1100,11 @@ export class TestDataFactory {
     static snapshotArgs(overrides: Record<string, unknown> = {}) {
         return {
             instanceName: 'test-instance',
-            projectId: TEST_CONSTANTS.DEFAULT_PROJECT_ID,
-            zone: TEST_CONSTANTS.DEFAULT_ZONE,
-            dataDiskId: TEST_CONSTANTS.DEFAULT_DATA_DISK_ID,
+            projectId: CLOUDYPAD_CONFIG.DEFAULTS.PROJECT_ID,
+            zone: CLOUDYPAD_CONFIG.DEFAULTS.ZONE,
+            dataDiskId: CLOUDYPAD_CONFIG.DEFAULTS.DATA_DISK_ID,
             snapshotName: 'test-snapshot',
-            instanceServerId: TEST_CONSTANTS.DEFAULT_INSTANCE_SERVER_ID,
+            instanceServerId: CLOUDYPAD_CONFIG.DEFAULTS.INSTANCE_SERVER_ID,
             ...overrides
         }
     }
