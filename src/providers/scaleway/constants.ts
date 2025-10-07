@@ -3,6 +3,9 @@
  * Centralizes all Scaleway-specific constants to eliminate magic numbers throughout the codebase
  */
 
+import { CORE_VALIDATION_PATTERNS } from '../../core/validation/patterns'
+import { SCALEWAY_VALIDATION_PATTERNS } from './validation/patterns'
+
 /**
  * Scaleway API and SDK configuration constants
  */
@@ -41,11 +44,11 @@ export const SCALEWAY_VALIDATION = {
     /** Maximum length for snapshot names */
     SNAPSHOT_NAME_MAX_LENGTH: 63,
     
-    /** Valid characters pattern for snapshot names */
-    SNAPSHOT_NAME_PATTERN: /^[a-zA-Z0-9-_]{1,63}$/,
+    /** Valid characters pattern for snapshot names - uses centralized pattern */
+    SNAPSHOT_NAME_PATTERN: SCALEWAY_VALIDATION_PATTERNS.SNAPSHOT_NAME,
     
-    /** UUID validation pattern for Scaleway resources */
-    UUID_PATTERN: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    /** UUID validation pattern for Scaleway resources - uses centralized pattern */
+    UUID_PATTERN: CORE_VALIDATION_PATTERNS.UUID,
 } as const;
 
 /**

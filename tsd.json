@@ -1,0 +1,14 @@
+{
+  "typingsFile": "./src/index.d.ts",
+  "testFiles": ["./test/types/*.test-d.ts"],
+  "compilerOptions": {
+    "module": "node16",
+    "target": "es2022",
+    "lib": ["es2022"],
+    "moduleResolution": "node16",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true
+  }
+}

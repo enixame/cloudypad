@@ -3,6 +3,7 @@ import { ScalewayPulumiClient, PulumiStackConfigScaleway, ScalewayPulumiOutput }
 import { AbstractInstanceProvisioner, InstanceProvisionerArgs } from '../../core/provisioner'
 import { ScalewayProvisionInputV1, ScalewayProvisionOutputV1 } from './state'
 import { ScalewayClient } from './sdk-client'
+import { ScalewayProjectIdSchema, ScalewayRegionSchema, ScalewayZoneSchema, ScalewayCommercialTypeSchema } from './types/validation-elegant'
 
 export type ScalewayProvisionerArgs = InstanceProvisionerArgs<ScalewayProvisionInputV1, ScalewayProvisionOutputV1>
 
@@ -61,10 +62,10 @@ export class ScalewayProvisioner extends AbstractInstanceProvisioner<ScalewayPro
         const sshPublicKeyContent = new SshKeyLoader().loadSshPublicKeyContent(this.args.provisionInput.ssh)
 
         return {
-            projectId: this.args.provisionInput.projectId,
-            region: this.args.provisionInput.region,
-            zone: this.args.provisionInput.zone,
-            instanceType: this.args.provisionInput.instanceType,
+            projectId: ScalewayProjectIdSchema.parse(this.args.provisionInput.projectId),
+            region: ScalewayRegionSchema.parse(this.args.provisionInput.region),
+            zone: ScalewayZoneSchema.parse(this.args.provisionInput.zone),
+            instanceType: ScalewayCommercialTypeSchema.parse(this.args.provisionInput.instanceType),
             rootDisk: {
                 sizeGb: this.args.provisionInput.diskSizeGb,
             },

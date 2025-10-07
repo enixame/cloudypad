@@ -4,6 +4,7 @@ import { PulumiStackConfigAzure } from "../../../../src/providers/azure/pulumi";
 import { AZURE_SUPPORTED_DISK_TYPES } from "../../../../src/providers/azure/state";
 import { PulumiStackConfigGcp } from "../../../../src/providers/gcp/pulumi";
 import { PulumiStackConfigScaleway } from "../../../../src/providers/scaleway/pulumi";
+import { ScalewayTypeHelpers } from "../../../../src/providers/scaleway/types/helpers";
 
 // Test key, not used anywhere but here
 const pubKey = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC0fvAW244z7LT8sE1g2Zl6mi5LL1V7Otw5ZfzF1Zsh+OufH+AbmkLOmrhtbUE7OmIQduDSXbttCGPocW6Va2vEeq0SIsn7ZjxdsIlwP7xCzDDwA6R29uCrgy4YLdJhz7FOhgI+n1td9JP8444I1+duaoOrOcihxHJZkqjh+GCc6bXrTsJ2fVCqZRGRG7nyMRpIJKfCFkNkSawF2wrX6BWKTkNolMLJUz9FZWPn3mtOWDaVVVrInSwzmqYf5f9gLC17rydH6YnMEIgHvCRJYh4Dpz3A2Sw6fogwWgNGtt4k25HcUX0kMY0KbRFAG4rSJrHScmQ5FA8fKyDcZB25cHd6/hT2435IKXnBT4Jjw96PNQQwI4PjTFBK8IMlUMEUC4B51cSmcLCV0ia69bDEltSjLv92BiZA/W6dFCg9b6DYprAIHeSESRHUwOJg2boFPVdVGyxJc7PNRNY4uBZxVILYdUDPEwfyM1kqW1aHhq5Is8TX69bNU4X9t5l5J53vYhk="
@@ -44,10 +45,10 @@ export const gcpInput: PulumiStackConfigGcp = {
 }
 
 export const scalewayInput: PulumiStackConfigScaleway = {
-    projectId: "544ba1fc-29c6-4c3f-9a1a-2531ef7593ba",
-    region: "pl-waw",
-    zone: "pl-waw-2",
-    instanceType: "L4-1-24G",
+    projectId: ScalewayTypeHelpers.toProjectId("544ba1fc-29c6-4c3f-9a1a-2531ef7593ba"),
+    region: ScalewayTypeHelpers.toRegion("pl-waw"),
+    zone: ScalewayTypeHelpers.toZone("pl-waw-2"),
+    instanceType: ScalewayTypeHelpers.toCommercialType("L4-1-24G"),
     rootDisk: {
         sizeGb: 20,
     },

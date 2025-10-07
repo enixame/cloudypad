@@ -1,7 +1,7 @@
 /**
- * Scaleway-specific Type Guards using the generic architecture
- * Demonstrates how to extend the base type guard system for a specific provider
- * Enhanced with Zod validation for critical API responses
+ * Scaleway-specific Type Guards
+ * Extends the generic type guard architecture with Scaleway-specific validations
+ * Uses hybrid Zod + TypeScript approach for optimal performance
  */
 
 import { z } from 'zod'
@@ -10,15 +10,15 @@ import {
     CommonTypeGuards, 
     TypeGuardRegistry,
     ProviderTypeGuards 
-} from '../../core/type-guards';
+} from '../../core/type-guards'
+import { SCALEWAY_VALIDATION_PATTERNS } from './validation/patterns'
 
 /**
  * Zod schemas for runtime validation of critical API responses
+ * Only includes schemas that are actually used in the code
  */
 const VolumeStatusSchema = z.enum(['available', 'in_use', 'creating', 'deleting', 'error'])
 const VolumeClassSchema = z.enum(['sbs', 'bssd', 'lssd'])
-const ScalewayZoneSchema = z.string().regex(/^[a-z]{2}-[a-z]{3}-[0-9]+$/)
-const ScalewayRegionSchema = z.string().regex(/^[a-z]{2}-[a-z]{3}$/)
 
 const VolumeResponseSchema = z.object({
     id: z.string().uuid().optional(),
@@ -28,18 +28,6 @@ const VolumeResponseSchema = z.object({
         perfIops: z.number().positive().optional(),
         class: VolumeClassSchema.optional()
     }).optional()
-})
-
-const ServerResponseSchema = z.object({
-    id: z.string().uuid().optional(),
-    name: z.string().optional(),
-    state: z.string().optional(),
-    commercialType: z.string().optional(),
-    rootVolume: z.object({
-        volumeId: z.string().uuid().optional(),
-        size: z.number().positive().optional()
-    }).optional(),
-    tags: z.array(z.string()).optional()
 })
 
 /**
@@ -85,7 +73,8 @@ export const ScalewayTypeGuards = {
         if (typeof obj !== 'object' || obj === null) return false;
         
         // Runtime validation for critical API responses only (when strictValidation flag is set)
-        if (process.env.NODE_ENV === 'test' || (globalThis as any).__CLOUDYPAD_STRICT_VALIDATION__) {
+        // @ts-expect-error - Accessing dynamic global flag for test environment
+        if (process.env.NODE_ENV === 'test' || globalThis.__CLOUDYPAD_STRICT_VALIDATION__) {
             return VolumeResponseSchema.safeParse(obj).success;
         }
         
@@ -165,9 +154,10 @@ export const ScalewayTypeGuards = {
     instanceStatus: TypeGuardBuilder.object<ScalewayInstanceStatus>({
         customValidator: (obj): boolean => {
             // Validate server state if present
-            if (obj.server) {
+            const server = obj.server as ScalewayServerResponse | undefined;
+            if (server?.state) {
                 const validStates = ['running', 'stopped', 'stopping', 'starting', 'locked']
-                if (typeof obj.state !== 'string' || !validStates.includes(obj.state)) return false;
+                return typeof server.state === 'string' && validStates.includes(server.state);
             }
             return true;
         },
@@ -179,8 +169,7 @@ export const ScalewayTypeGuards = {
      */
     zone: (obj: unknown): obj is string => {
         if (!CommonTypeGuards.nonEmptyString(obj)) return false;
-        const zoneRegex = /^[a-z]{2}-[a-z]{3}-[0-9]+$/;
-        return zoneRegex.test(obj);
+        return SCALEWAY_VALIDATION_PATTERNS.ZONE.test(obj);
     },
 
     /**
@@ -188,8 +177,7 @@ export const ScalewayTypeGuards = {
      */
     region: (obj: unknown): obj is string => {
         if (!CommonTypeGuards.nonEmptyString(obj)) return false;
-        const regionRegex = /^[a-z]{2}-[a-z]{3}$/;
-        return regionRegex.test(obj);
+        return SCALEWAY_VALIDATION_PATTERNS.REGION.test(obj);
     },
 
     /**
@@ -207,7 +195,7 @@ export const ScalewayTypeGuards = {
      */
     snapshotName: (obj: unknown): obj is string => {
         if (!CommonTypeGuards.nonEmptyString(obj)) return false;
-        return /^[a-zA-Z0-9-_]{1,63}$/.test(obj);
+        return SCALEWAY_VALIDATION_PATTERNS.SNAPSHOT_NAME.test(obj);
     },
 
     /**
@@ -215,8 +203,7 @@ export const ScalewayTypeGuards = {
      */
     commercialType: (obj: unknown): obj is string => {
         if (!CommonTypeGuards.nonEmptyString(obj)) return false;
-        // Common Scaleway instance types pattern
-        return /^[A-Z]+[0-9]+-[A-Z]+$/.test(obj);
+        return SCALEWAY_VALIDATION_PATTERNS.COMMERCIAL_TYPE.test(obj);
     }
 } satisfies ProviderTypeGuards;
 
@@ -238,7 +225,7 @@ export const ScalewayValidators = {
      */
     serverReady: (obj: unknown): obj is ScalewayServerResponse => {
         const server = obj as ScalewayServerResponse;
-        return ScalewayTypeGuards.volumeResponse(obj) &&
+        return ScalewayTypeGuards.server(obj) &&
                CommonTypeGuards.nonEmptyString(server.id) &&
                server.state === 'running';
     },

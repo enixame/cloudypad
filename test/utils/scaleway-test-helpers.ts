@@ -3,6 +3,8 @@ import { ScalewayClient } from '../../src/providers/scaleway/sdk-client'
 import { StateWriter } from '../../src/core/state/writer'
 import { ScalewayProviderClient } from '../../src/providers/scaleway/provider'
 import { ScalewayInstanceStateV1 } from '../../src/providers/scaleway/state'
+import { CORE_VALIDATION_PATTERNS, CoreValidators } from '../../src/core/validation/patterns'
+import { SCALEWAY_VALIDATION_PATTERNS, ScalewayValidators } from '../../src/providers/scaleway/validation/patterns'
 
 /**
  * Centralized configuration system to eliminate magic numbers and improve reusability
@@ -189,13 +191,13 @@ const DEFAULT_INSTANCE_STATE: DeepReadonly<ScalewayInstanceStateV1> = {
  * ```
  */
 class ValidationUtils {
-    /** Cached regex patterns to avoid recompilation */
+    /** Cached regex patterns to avoid recompilation - uses centralized patterns */
     static readonly PATTERNS = {
-        PATH: /^[a-zA-Z][a-zA-Z0-9.]*[a-zA-Z0-9]$/,
-        UUID: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
-        IP: /^((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)\.?\b){4}$/,
-        INSTANCE_NAME: /^[a-zA-Z][a-zA-Z0-9-]*[a-zA-Z0-9]$/,
-        REGION: /^[a-z]{2}-[a-z]{3,4}-\d$/
+        PATH: CORE_VALIDATION_PATTERNS.PATH,
+        UUID: CORE_VALIDATION_PATTERNS.UUID,
+        IP: CORE_VALIDATION_PATTERNS.IP_V4,
+        INSTANCE_NAME: CORE_VALIDATION_PATTERNS.INSTANCE_NAME,
+        REGION: SCALEWAY_VALIDATION_PATTERNS.ZONE // Zone pattern includes region + number
     } as const
 
     /**
@@ -204,7 +206,7 @@ class ValidationUtils {
      * @returns true if valid, false otherwise
      */
     static isValidPath(path: string): boolean {
-        return path.length > 0 && this.PATTERNS.PATH.test(path)
+        return CoreValidators.isValidPath(path)
     }
 
     /**
@@ -213,7 +215,7 @@ class ValidationUtils {
      * @returns true if valid UUID format
      */
     static isValidUUID(uuid: string): boolean {
-        return this.PATTERNS.UUID.test(uuid)
+        return CoreValidators.isValidUUID(uuid)
     }
 
     /**
@@ -222,7 +224,7 @@ class ValidationUtils {
      * @returns true if valid IPv4 format
      */
     static isValidIP(ip: string): boolean {
-        return this.PATTERNS.IP.test(ip)
+        return CoreValidators.isValidIPv4(ip)
     }
 
     /**
@@ -231,16 +233,16 @@ class ValidationUtils {
      * @returns true if valid instance name
      */
     static isValidInstanceName(name: string): boolean {
-        return name.length > 0 && name.length <= 63 && this.PATTERNS.INSTANCE_NAME.test(name)
+        return CoreValidators.isValidInstanceName(name)
     }
 
     /**
-     * Validates Scaleway region format (e.g., 'fr-par-1', 'nl-ams-1')
-     * @param region - Region to validate
-     * @returns true if valid region format
+     * Validates Scaleway zone format (e.g., 'fr-par-1', 'nl-ams-1')
+     * @param zone - Zone to validate
+     * @returns true if valid zone format
      */
-    static isValidRegion(region: string): boolean {
-        return this.PATTERNS.REGION.test(region)
+    static isValidRegion(zone: string): boolean {
+        return ScalewayValidators.isValidZone(zone)
     }
 }
 

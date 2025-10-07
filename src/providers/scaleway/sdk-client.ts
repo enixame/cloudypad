@@ -4,6 +4,15 @@ import { loadProfileFromConfigurationFile } from '@scaleway/configuration-loader
 import { ScalewayErrorUtils } from '../../tools/scaleway-error-utils'
 import { SCALEWAY_STORAGE, SCALEWAY_TIMEOUTS } from './constants'
 import { ScalewayTypeGuards } from './type-guards'
+import type { ScalewayClientArgs } from './types/branded'
+import { 
+  validateScalewayClientArgs, 
+  getDefaultValidationConfig, 
+  consoleValidationLogger,
+  getLatestSchemaVersion,
+  type ScalewayClientRawArgs
+} from './validation'
+import type { ExtendedValidationConfig } from './types/validation-elegant'
 
 // Use centralized volume type constants
 type ScalewayVolumeTypeForInstance = typeof SCALEWAY_STORAGE.VOLUME_TYPES[keyof typeof SCALEWAY_STORAGE.VOLUME_TYPES]
@@ -52,12 +61,7 @@ export enum ServerActionEnum {
     EnableRoutedIp = 'enable_routed_ip'
 }
 
-export interface ScalewayClientArgs {
-    organizationId?: string
-    projectId?: string
-    zone?: string
-    region?: string
-}
+// ScalewayClientArgs is now exported from ./types/branded.ts
 
 export interface ScalewayInstanceType {
     name: string
@@ -119,20 +123,37 @@ export class ScalewayClient {
     private readonly accountProjectClient: Account.v3.ProjectAPI
     private readonly marketplaceClient: Marketplace.v2.API
 
-    constructor(name: string, args: ScalewayClientArgs) {
+    // Overload 1: Branded types (recommended)
+    constructor(name: string, args: ScalewayClientArgs, validationConfig?: ExtendedValidationConfig)
+    // Overload 2: Raw strings (compatibility - validation at boundary)
+    constructor(name: string, args: ScalewayClientRawArgs, validationConfig?: ExtendedValidationConfig)
+    // Implementation
+    constructor(name: string, args: ScalewayClientArgs | ScalewayClientRawArgs, validationConfig?: ExtendedValidationConfig) {
         const profile = ScalewayClient.loadProfileFromConfigurationFile()
+        
+        // Validation and conversion at boundary using production-ready validation
+        const config = validationConfig || {
+            ...getDefaultValidationConfig(),
+            schemaVersion: getLatestSchemaVersion(),
+            enableAutoMigration: true,
+            logger: process.env.NODE_ENV === 'development' ? consoleValidationLogger : undefined
+        }
+        const safeArgs = validateScalewayClientArgs(args, config)
+        
         const client = createClient({
             ...profile,
-            defaultProjectId: args.projectId,
-            defaultZone: args.zone,
-            defaultRegion: args.region,
+            defaultProjectId: safeArgs.projectId as string, // Safe cast after validation
+            defaultZone: safeArgs.zone as string,
+            defaultRegion: safeArgs.region as string,
         })
         this.logger = getLogger(name)
-    this.instanceClient = new Instance.v1.API(client)
-    this.blockClient = new Block.v1alpha1.API(client)
+        this.instanceClient = new Instance.v1.API(client)
+        this.blockClient = new Block.v1alpha1.API(client)
         this.accountProjectClient = new Account.v3.ProjectAPI(client)
         this.marketplaceClient = new Marketplace.v2.API(client)
     }
+
+
 
     async listInstances(): Promise<ScalewayVMDetails[]> {
         this.logger.debug(`Listing Scaleway virtual machines`)

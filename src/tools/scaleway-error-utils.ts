@@ -3,6 +3,9 @@
  * Centralizes error normalization, type guards, and common error patterns
  */
 
+import { CoreValidators } from '../core/validation/patterns'
+import { ScalewayValidators } from '../providers/scaleway/validation/patterns'
+
 export interface ScalewayErrorDetails {
     message: string;
     originalError: unknown;
@@ -142,8 +145,7 @@ export class ScalewayErrorUtils {
      * @returns true if the ID is a valid UUID format
      */
     static isValidUUID(id: string): boolean {
-        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-        return uuidRegex.test(id);
+        return CoreValidators.isValidUUID(id)
     }
 
     /**
@@ -152,7 +154,7 @@ export class ScalewayErrorUtils {
      * @returns true if the name follows Scaleway naming conventions
      */
     static isValidSnapshotName(name: string): boolean {
-        return /^[a-zA-Z0-9-_]{1,63}$/.test(name);
+        return ScalewayValidators.isValidSnapshotName(name)
     }
 
     /**

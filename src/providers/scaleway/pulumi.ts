@@ -3,6 +3,7 @@ import * as pulumi from "@pulumi/pulumi"
 import { InstancePulumiClient } from "../../tools/pulumi/client"
 import { LocalWorkspaceOptions, OutputMap } from "@pulumi/pulumi/automation"
 import { SimplePortDefinition } from "../../core/const"
+import { ScalewayProjectId, ScalewayRegion, ScalewayZone, ScalewayCommercialType } from "./types/branded"
 
 interface ScalewayInstanceArgs {
     networkSecurityGroupRules?: pulumi.Input<pulumi.Input<scw.types.input.InstanceSecurityGroupInboundRule>[]>
@@ -165,10 +166,10 @@ async function scalewayPulumiProgram(): Promise<Record<string, any> | void> {
 }
 
 export interface PulumiStackConfigScaleway {
-    projectId: string
-    region: string
-    zone: string
-    instanceType: string
+    projectId: ScalewayProjectId
+    region: ScalewayRegion
+    zone: ScalewayZone
+    instanceType: ScalewayCommercialType
     noInstanceServer?: boolean
     imageId?: string
     rootDisk: {

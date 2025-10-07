@@ -9,10 +9,11 @@ import { loadProfileFromConfigurationFile } from '@scaleway/configuration-loader
 import { InstanceStateV1 } from '../../core/state/state'
 import { ScalewayErrorUtils } from '../../tools/scaleway-error-utils'
 import { SCALEWAY_TIMEOUTS, SCALEWAY_STORAGE, SCALEWAY_API } from '../../providers/scaleway/constants'
-import { ScalewayTypeGuards, ScalewayValidators } from '../../providers/scaleway/type-guards'
+import { ScalewayTypeGuards } from '../../providers/scaleway/type-guards'
+import { ScalewayValidators as UnifiedScalewayValidators } from '../../providers/scaleway/validation/patterns'
 
 export function validateSnapshotName(name: string){
-    if(!ScalewayErrorUtils.isValidSnapshotName(name)){
+    if(!UnifiedScalewayValidators.isValidSnapshotName(name)){
         throw ScalewayErrorUtils.createInvalidSnapshotNameError(name)
     }
 }

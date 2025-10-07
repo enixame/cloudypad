@@ -98,8 +98,8 @@ describe('🧪 Scaleway Snapshot Infrastructure Tests', () => {
 
                 try {
                     
-                    // Note: En production, on aurait besoin de mocker plus profondément
-                    // Pour ce test, on vérifie la structure des arguments
+                    // Note: In production, we would need deeper mocking
+                    // For this test, we verify the argument structure
                     const args: CreateSnapshotArgs = {
                         instanceName: state.name,
                         projectId: state.provision.input.projectId!,

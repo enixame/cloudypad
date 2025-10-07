@@ -13,16 +13,20 @@ import {
     ProviderTestConfig
 } from '../generic'
 import { ScalewayInstanceStateV1 } from '../../../src/providers/scaleway/state'
+import { CoreBrandedTypeCreators } from '../../../src/core/types/branded'
+import { ScalewayTypeHelpers } from '../../../src/providers/scaleway/types/helpers'
+import { ScalewayTestConstants } from '../../../src/providers/scaleway/types/test-constants'
 
 /**
- * Scaleway-specific test constants (unified from legacy)
+ * Scaleway-specific test constants with branded types for enhanced type safety
+ * Provides compile-time guarantees for validated values
  */
-export const SCALEWAY_TEST_CONSTANTS = {
-    DEFAULT_PROJECT_ID: '12345678-1234-1234-1234-123456789012',
-    DEFAULT_REGION: 'fr-par',
-    DEFAULT_ZONE: 'fr-par-1',
-    DEFAULT_HOST: '1.2.3.4',
-    DEFAULT_DATA_DISK_ID: '12345678-1234-1234-1234-123456789abc',
+export const SCALEWAY_TEST_CONSTANTS: ScalewayTestConstants = {
+    DEFAULT_PROJECT_ID: ScalewayTypeHelpers.toProjectId('12345678-1234-1234-1234-123456789012'),
+    DEFAULT_REGION: ScalewayTypeHelpers.toRegion('fr-par'),
+    DEFAULT_ZONE: ScalewayTypeHelpers.toZone('fr-par-1'),
+    DEFAULT_HOST: CoreBrandedTypeCreators.createIPv4Address('1.2.3.4'),
+    DEFAULT_DATA_DISK_ID: CoreBrandedTypeCreators.createUUID('12345678-1234-1234-1234-123456789abc'),
     DEFAULT_INSTANCE_SERVER_ID: 'srv-1',
     DEFAULT_SSH_USER: 'ubuntu',
     DEFAULT_SSH_KEY_PATH: './test/resources/ssh-key',
@@ -30,9 +34,8 @@ export const SCALEWAY_TEST_CONSTANTS = {
     DEFAULT_DATA_DISK_SIZE_GB: 100,
     DEFAULT_PASSWORD_BASE64: 'dGVzdC1wYXNzd29yZA==',
     DEFAULT_USERNAME: 'test-user',
-    DEFAULT_COMMERCIAL_TYPE: 'PLAY2-PICO',
-    DEFAULT_VOLUME_TYPE: 'b_ssd',
-    DEFAULT_SERVER_NAME: 'test-server',
+    DEFAULT_COMMERCIAL_TYPE: ScalewayTypeHelpers.toCommercialType('PLAY2-PICO'),
+    DEFAULT_SERVER_NAME: CoreBrandedTypeCreators.createInstanceName('test-server'),
     DEFAULT_SNAPSHOT_NAME: 'test-snapshot'
 } as const
 
