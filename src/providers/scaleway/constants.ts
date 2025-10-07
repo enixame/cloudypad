@@ -35,6 +35,9 @@ export const SCALEWAY_TIMEOUTS = {
     
     /** Timeout for volume attachment operations (milliseconds) */
     VOLUME_ATTACH_TIMEOUT: 60_000,
+    
+    /** Timeout for Pulumi volume deletion operations (seconds) - needs to be longer than API operations */
+    PULUMI_VOLUME_DELETE_TIMEOUT: 600,
 } as const;
 
 /**

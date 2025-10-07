@@ -302,8 +302,9 @@ export class ScalewayCliCommandGenerator extends CliCommandGenerator {
             .option('--restore', 'Restore the snapshot instead of creating one')
             .option('--yes', 'Do not prompt for approval, automatically approve and continue')
             .option('--delete-old-disk', 'After a successful restore, delete the previous data disk (requires --yes)')
+            .option('--delete-snapshot', 'After a successful restore, delete the snapshot (requires --yes)')
             .option('--delete-data-disk', 'On snapshot creation, delete the current data disk to archive and reduce costs (requires --yes)')
-            .action(async (snapshotName: string, opts: { name: string, restore?: boolean, yes?: boolean, deleteOldDisk?: boolean, deleteDataDisk?: boolean }) => {
+            .action(async (snapshotName: string, opts: { name: string, restore?: boolean, yes?: boolean, deleteOldDisk?: boolean, deleteSnapshot?: boolean, deleteDataDisk?: boolean }) => {
                 this.analytics.sendEvent(opts.restore ? 'snapshot-restore' : 'snapshot-create', { provider: CLOUDYPAD_PROVIDER_SCALEWAY })
 
                 validateSnapshotName(snapshotName)
@@ -386,6 +387,8 @@ export class ScalewayCliCommandGenerator extends CliCommandGenerator {
                         publicIPv4: provisionOut.publicIPv4,
                         autoApprove: opts.yes === true,
                         deleteOldDisk: (opts.deleteOldDisk === true) && (opts.yes === true),
+                        deleteSnapshot: (opts.deleteSnapshot === true) && (opts.yes === true),
+                        coreConfig: args.coreConfig,
                     })
                     console.info(`Restored snapshot '${snapshotName}' on instance ${state.name}`)
                     // Persist new data disk id in state
@@ -394,6 +397,47 @@ export class ScalewayCliCommandGenerator extends CliCommandGenerator {
                     if(opts.deleteOldDisk && !opts.yes){
                         console.warn("--delete-old-disk requested but --yes not provided; skipping old disk deletion. Re-run with --yes to confirm.")
                     }
+                    if(opts.deleteSnapshot && !opts.yes){
+                        console.warn("--delete-snapshot requested but --yes not provided; skipping snapshot deletion. Re-run with --yes to confirm.")
+                    }
+                }
+            })
+    }
+    
+    static buildDiagnosePulumiCommand(coreConfig: CoreConfig): Command {
+        return new Command()
+            .name('diagnose-pulumi')
+            .description('Diagnose and repair Pulumi-related issues for Scaleway instances')
+            .requiredOption('--name <name>', 'Instance name to diagnose')
+            .option('--auto-fix', 'Automatically fix detected issues', false)
+            .action(async (opts: { name: string, autoFix?: boolean }) => {
+                const { diagnosePulumiIssues } = await import('../../infrastructure/scaleway/snapshot')
+                
+                console.log(`🔍 Diagnosing Pulumi issues for instance: ${opts.name}`)
+                
+                const result = await diagnosePulumiIssues(opts.name)
+                
+                if (result.issues.length === 0) {
+                    console.log('✅ No Pulumi issues detected')
+                    return
+                }
+                
+                console.log('\n🚨 Issues detected:')
+                result.issues.forEach((issue, i) => {
+                    console.log(`  ${i + 1}. ${issue}`)
+                })
+                
+                console.log('\n💡 Recommendations:')
+                result.recommendations.forEach((rec, i) => {
+                    console.log(`  ${i + 1}. ${rec}`)
+                })
+                
+                if (result.autoFixApplied) {
+                    console.log('\n🔧 Auto-fixes were applied')
+                }
+                
+                if (opts.autoFix && !result.autoFixApplied) {
+                    console.log('\n🔧 Auto-fix requested but no automatic fixes are available for these issues')
                 }
             })
     }

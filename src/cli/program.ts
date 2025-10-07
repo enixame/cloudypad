@@ -120,6 +120,12 @@ export function buildProgram(){
         .command('snapshot')
         .description('Create or restore a data disk snapshot. See subcommands for each provider.')
     snapshotCmd.addCommand(new ScalewayCliCommandGenerator().buildSnapshotCommand({ coreConfig }))
+    
+    // diagnostic command for troubleshooting
+    const diagnosticCmd = program
+        .command('diagnose')
+        .description('Diagnose and repair infrastructure issues. See subcommands for each provider.')
+    diagnosticCmd.addCommand(ScalewayCliCommandGenerator.buildDiagnosePulumiCommand(coreConfig))
 
     program
         .command('list')
