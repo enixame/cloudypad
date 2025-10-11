@@ -8,6 +8,7 @@ import { PartialDeep } from "type-fest";
 import { SCALEWAY_DEFAULT_IOPS, SCALEWAY_FALLBACK_IOPS_TIERS, SCALEWAY_IOPS_LABELS } from "./const";
 import { CLI_OPTION_AUTO_STOP_TIMEOUT, CLI_OPTION_AUTO_STOP_ENABLE, CLI_OPTION_STREAMING_SERVER, CLI_OPTION_SUNSHINE_IMAGE_REGISTRY, CLI_OPTION_SUNSHINE_IMAGE_TAG, CLI_OPTION_SUNSHINE_PASSWORD, CLI_OPTION_SUNSHINE_USERNAME, CliCommandGenerator, CreateCliArgs, UpdateCliArgs, CLI_OPTION_USE_LOCALE, CLI_OPTION_KEYBOARD_LAYOUT, CLI_OPTION_KEYBOARD_MODEL, CLI_OPTION_KEYBOARD_VARIANT, CLI_OPTION_KEYBOARD_OPTIONS, CLI_OPTION_DATA_DISK_SIZE, CLI_OPTION_ROOT_DISK_SIZE, BuildCreateCommandArgs, BuildUpdateCommandArgs, CLI_OPTION_DELETE_INSTANCE_SERVER_ON_STOP, CLI_OPTION_RATE_LIMIT_MAX_MBPS, CLI_OPTION_SUNSHINE_MAX_BITRATE_KBPS, CLI_OPTION_DATA_DISK_IOPS } from "../../cli/command";
 import { InteractiveInstanceInitializer } from "../../cli/initializer";
+import { Optional } from "../../core/types";
 import { RUN_COMMAND_CREATE, RUN_COMMAND_UPDATE } from "../../tools/analytics/events";
 import { InteractiveInstanceUpdater } from "../../cli/updater";
 import { ScalewayProviderClient } from "./provider";
@@ -69,7 +70,7 @@ export class ScalewayInputPrompter extends AbstractInputPrompter<ScalewayCreateC
         const rootDiskSizeGb = await this.rootDiskSize(partialInput.provision?.diskSizeGb)
         const dataDiskSizeGb = await this.dataDiskSize(partialInput.provision?.dataDiskSizeGb)
         const availableIopsTiers = await zonalScwClient.listIopsTiers().catch(() => [])
-        const dataDiskIops = await this.dataDiskIops(dataDiskSizeGb, partialInput.provision?.dataDiskIops, availableIopsTiers)
+        const dataDiskIops: Optional<number> = await this.dataDiskIops(dataDiskSizeGb, partialInput.provision?.dataDiskIops, availableIopsTiers, createOptions.autoApprove ?? false)
 
         const scwInput: ScalewayInstanceInput = {
             configuration: commonInput.configuration,
@@ -92,12 +93,13 @@ export class ScalewayInputPrompter extends AbstractInputPrompter<ScalewayCreateC
         
     }
 
-    private async dataDiskIops(dataDiskSizeGb: number, dataDiskIops?: number, tiers?: number[]): Promise<number | undefined> {
-        // If no data disk is requested, skip IOPS prompt
-        if (!dataDiskSizeGb || dataDiskSizeGb <= 0) {
+    private async dataDiskIops(dataDiskSizeGb: number, dataDiskIops: Optional<number>, tiers: Optional<number[]>, autoApprove: boolean): Promise<Optional<number>> {
+        if (dataDiskSizeGb <= 0) {
             return undefined
         }
+        
         const allowed: number[] = (tiers && tiers.length > 0) ? [...tiers].sort((a,b)=>a-b) : [...SCALEWAY_FALLBACK_IOPS_TIERS]
+        
         if (dataDiskIops !== undefined) {
             if (!allowed.includes(dataDiskIops)) {
                 console.warn(`⚠️ IOPS ${dataDiskIops} not in allowed tiers ${allowed.join(', ')}. Falling back to ${allowed[0]}.`)
@@ -105,10 +107,17 @@ export class ScalewayInputPrompter extends AbstractInputPrompter<ScalewayCreateC
             }
             return dataDiskIops
         }
+        
+        // If autoApprove is true, use default without prompting
+        if (autoApprove) {
+            return allowed[0] ?? SCALEWAY_DEFAULT_IOPS
+        }
+        
         const choices = allowed.map((v: number) => ({ name: SCALEWAY_IOPS_LABELS[v] ?? `${v}`, value: v }))
         const choice = await select<number>({
             message: 'Data disk IOPS:',
             choices,
+            default: allowed[0] ?? SCALEWAY_DEFAULT_IOPS,
             loop: false
         })
         return choice

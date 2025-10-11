@@ -143,8 +143,7 @@ export class ScalewayClient {
 
     /**
      * List available IOPS tiers for Scaleway Block Storage (SBS) in the configured zone.
-     * Parses specs.perfIops when available; falls back to the type suffix (e.g., sbs_5k -> 5000).
-     * Returns unique, ascending-sorted values (e.g., [5000, 15000]).
+     * Returns unique, ascending-sorted values from specs.perfIops (e.g., [5000, 15000]).
      */
     async listIopsTiers(): Promise<number[]> {
         const res = await this.blockClient.listVolumeTypes()
@@ -155,34 +154,15 @@ export class ScalewayClient {
         for (const vt of volumeTypes) {
             // Only consider SBS classes when identifiable via specs.class
             const cls: string | undefined = vt?.specs?.class
-            const typeName: string | undefined = vt?.type
             if (cls && typeof cls === 'string' && cls.toLowerCase() !== 'sbs') {
                 continue
             }
 
-            let value: number | undefined
-
-            // 1) Preferred: specs.perfIops (observed shape)
+            // Use specs.perfIops directly from API response
             const perfIops = vt?.specs?.perfIops
             if (typeof perfIops === 'number' && perfIops > 0) {
-                value = perfIops
+                tiers.add(perfIops)
             }
-
-            // 2) Fallback: parse from type string like "sbs_5k" or "sbs_15000"
-            if (value === undefined && typeof typeName === 'string') {
-                // Parse exact lowercase 'k' suffix only (e.g., sbs_5k -> 5000). No case-insensitive match.
-                const m = typeName.match(/sbs_(\d+)(k)?/)
-                if (m) {
-                    const num = parseInt(m[1], 10)
-                    if (!isNaN(num)) {
-                        value = (m[2] === 'k') ? num * 1000 : num
-                    }
-                }
-            }
-
-            if (typeof value === 'number' && value > 0) {
-                tiers.add(value)
-        }
         }
 
         return Array.from(tiers).sort((a, b) => a - b)
