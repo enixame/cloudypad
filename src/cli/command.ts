@@ -71,7 +71,13 @@ export const CLI_OPTION_ROOT_DISK_SIZE = new Option('--root-disk-size <size>', '
 export const CLI_OPTION_DATA_DISK_SIZE = new Option('--data-disk-size <size>', 'Data disk size in GB (for game data)')
     .argParser(parseInt)
 export const CLI_OPTION_DATA_DISK_IOPS = new Option('--data-disk-iops <iops>', 'IOPS for data disk. Allowed values depend on the provider. If not set, the provider default is used.')
-    .argParser(parseInt)
+    .argParser((value: string) => {
+        const parsed = Number.parseInt(value, 10)
+        if (Number.isNaN(parsed) || parsed <= 0) {
+            throw new Error(`Invalid IOPS value: "${value}". Must be a positive integer.`)
+        }
+        return parsed
+    })
 
 export const CLI_OPTION_PUBLIC_IP_TYPE = new Option('--public-ip-type <type>', `Public IP type. Either ${PUBLIC_IP_TYPE_STATIC} or ${PUBLIC_IP_TYPE_DYNAMIC}`)
     .argParser(parsePublicIpType)

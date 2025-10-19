@@ -3,6 +3,7 @@ import { ScalewayPulumiClient, PulumiStackConfigScaleway, ScalewayPulumiOutput }
 import { AbstractInstanceProvisioner, InstanceProvisionerArgs } from '../../core/provisioner'
 import { ScalewayProvisionInputV1, ScalewayProvisionOutputV1 } from './state'
 import { ScalewayClient } from './sdk-client'
+import { SCALEWAY_DEFAULT_IOPS } from './const'
 
 export type ScalewayProvisionerArgs = InstanceProvisionerArgs<ScalewayProvisionInputV1, ScalewayProvisionOutputV1>
 
@@ -70,7 +71,7 @@ export class ScalewayProvisioner extends AbstractInstanceProvisioner<ScalewayPro
             },
             dataDisk: this.args.provisionInput.dataDiskSizeGb ? {
                 sizeGb: this.args.provisionInput.dataDiskSizeGb,
-                iops: this.args.provisionInput.dataDiskIops,
+                iops: this.args.provisionInput.dataDiskIops ?? SCALEWAY_DEFAULT_IOPS,
             } : undefined,
             imageId: this.args.provisionInput.imageId,
             securityGroupPorts: this.getStreamingServerPorts(),

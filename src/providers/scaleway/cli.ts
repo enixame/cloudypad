@@ -1,11 +1,11 @@
 import { ScalewayInstanceInput, ScalewayInstanceStateV1, ScalewayProvisionInputV1 } from "./state"
 import { CommonConfigurationInputV1, CommonInstanceInput } from "../../core/state/state"
 import { input, select } from '@inquirer/prompts';
-import { AbstractInputPrompter, PromptOptions } from "../../cli/prompter";
+import { AbstractInputPrompter, PromptOptions, STREAMING_SERVER_WOLF } from "../../cli/prompter";
 import { ScalewayClient } from "./sdk-client";
 import { CLOUDYPAD_PROVIDER_SCALEWAY } from "../../core/const";
 import { PartialDeep } from "type-fest";
-import { SCALEWAY_DEFAULT_IOPS, SCALEWAY_FALLBACK_IOPS_TIERS, SCALEWAY_IOPS_LABELS } from "./const";
+import { SCALEWAY_DEFAULT_IOPS, SCALEWAY_FALLBACK_IOPS_TIERS, SCALEWAY_IOPS_LABELS, ScalewayIopsTier } from "./const";
 import { CLI_OPTION_AUTO_STOP_TIMEOUT, CLI_OPTION_AUTO_STOP_ENABLE, CLI_OPTION_STREAMING_SERVER, CLI_OPTION_SUNSHINE_IMAGE_REGISTRY, CLI_OPTION_SUNSHINE_IMAGE_TAG, CLI_OPTION_SUNSHINE_PASSWORD, CLI_OPTION_SUNSHINE_USERNAME, CliCommandGenerator, CreateCliArgs, UpdateCliArgs, CLI_OPTION_USE_LOCALE, CLI_OPTION_KEYBOARD_LAYOUT, CLI_OPTION_KEYBOARD_MODEL, CLI_OPTION_KEYBOARD_VARIANT, CLI_OPTION_KEYBOARD_OPTIONS, CLI_OPTION_DATA_DISK_SIZE, CLI_OPTION_ROOT_DISK_SIZE, BuildCreateCommandArgs, BuildUpdateCommandArgs, CLI_OPTION_DELETE_INSTANCE_SERVER_ON_STOP, CLI_OPTION_RATE_LIMIT_MAX_MBPS, CLI_OPTION_SUNSHINE_MAX_BITRATE_KBPS, CLI_OPTION_DATA_DISK_IOPS } from "../../cli/command";
 import { InteractiveInstanceInitializer } from "../../cli/initializer";
 import { Optional } from "../../core/types";
@@ -42,6 +42,9 @@ export class ScalewayInputPrompter extends AbstractInputPrompter<ScalewayCreateC
                 dataDiskSizeGb: cliArgs.dataDiskSize,
                 dataDiskIops: cliArgs.dataDiskIops,
                 deleteInstanceServerOnStop: cliArgs.deleteInstanceServerOnStop
+            },
+            configuration: {
+                wolf: cliArgs.streamingServer === STREAMING_SERVER_WOLF ? { enable: true } : null,
             }
         }
     }
@@ -98,22 +101,34 @@ export class ScalewayInputPrompter extends AbstractInputPrompter<ScalewayCreateC
             return undefined
         }
         
-        const allowed: number[] = (tiers && tiers.length > 0) ? [...tiers].sort((a,b)=>a-b) : [...SCALEWAY_FALLBACK_IOPS_TIERS]
+        const allowed: readonly number[] = (tiers && tiers.length > 0) ? [...tiers].sort((a,b)=>a-b) : SCALEWAY_FALLBACK_IOPS_TIERS
+        
+        // Warn when API discovery failed
+        if (!tiers || tiers.length === 0) {
+            console.warn(`⚠️ Unable to discover IOPS tiers from Scaleway API. Using fallback: ${allowed.join(', ')}`)
+        }
         
         if (dataDiskIops !== undefined) {
             if (!allowed.includes(dataDiskIops)) {
                 console.warn(`⚠️ IOPS ${dataDiskIops} not in allowed tiers ${allowed.join(', ')}. Falling back to ${allowed[0]}.`)
                 return allowed[0] ?? SCALEWAY_DEFAULT_IOPS
             }
+            console.info(`✓ Using IOPS: ${dataDiskIops}`)
             return dataDiskIops
         }
         
         // If autoApprove is true, use default without prompting
         if (autoApprove) {
-            return allowed[0] ?? SCALEWAY_DEFAULT_IOPS
+            const selectedIops = allowed[0] ?? SCALEWAY_DEFAULT_IOPS
+            console.info(`✓ Auto-selected IOPS: ${selectedIops}`)
+            return selectedIops
         }
         
-        const choices = allowed.map((v: number) => ({ name: SCALEWAY_IOPS_LABELS[v] ?? `${v}`, value: v }))
+        // Map IOPS tiers to choices with labels, fallback to string representation for unknown tiers
+        const choices = allowed.map((v: number) => ({ 
+            name: SCALEWAY_IOPS_LABELS[v as ScalewayIopsTier] ?? `${v}`, 
+            value: v 
+        }))
         const choice = await select<number>({
             message: 'Data disk IOPS:',
             choices,
@@ -179,7 +194,7 @@ export class ScalewayInputPrompter extends AbstractInputPrompter<ScalewayCreateC
                 message: 'Data disk size in GB (OS will use another independent disk)',
                 default: "100"
             })
-            parsedDiskSize = Number.parseInt(selectedDiskSize)
+            parsedDiskSize = Number.parseInt(selectedDiskSize, 10)
         }
 
         return parsedDiskSize

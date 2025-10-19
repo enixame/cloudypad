@@ -152,11 +152,12 @@ export class ScalewayClient {
         const volumeTypes: VolumeType[] = (res as { volumeTypes?: VolumeType[] }).volumeTypes ?? []
 
         for (const vt of volumeTypes) {
-            // Only consider SBS classes when identifiable via specs.class
+            // Skip non-SBS classes only when explicitly identified
             const cls: string | undefined = vt?.specs?.class
             if (cls && typeof cls === 'string' && cls.toLowerCase() !== 'sbs') {
                 continue
             }
+            // Accept volumes without explicit class (potentially SBS)
 
             // Use specs.perfIops directly from API response
             const perfIops = vt?.specs?.perfIops
