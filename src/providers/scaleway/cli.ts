@@ -1,7 +1,7 @@
 import { ScalewayInstanceInput, ScalewayInstanceStateV1, ScalewayProvisionInputV1 } from "./state"
 import { CommonConfigurationInputV1, CommonInstanceInput } from "../../core/state/state"
 import { input, select } from '@inquirer/prompts';
-import { AbstractInputPrompter, PromptOptions, STREAMING_SERVER_WOLF } from "../../cli/prompter";
+import { AbstractInputPrompter, PromptOptions } from "../../cli/prompter";
 import { ScalewayClient } from "./sdk-client";
 import { CLOUDYPAD_PROVIDER_SCALEWAY } from "../../core/const";
 import { PartialDeep } from "type-fest";
@@ -30,7 +30,6 @@ export type ScalewayUpdateCliArgs = UpdateCliArgs & Omit<ScalewayCreateCliArgs, 
 export class ScalewayInputPrompter extends AbstractInputPrompter<ScalewayCreateCliArgs, ScalewayProvisionInputV1, CommonConfigurationInputV1> {
     
     protected buildProvisionerInputFromCliArgs(cliArgs: ScalewayCreateCliArgs): PartialDeep<ScalewayInstanceInput> {
-
         return {
             provision: {
                 region: cliArgs.region,
@@ -43,9 +42,6 @@ export class ScalewayInputPrompter extends AbstractInputPrompter<ScalewayCreateC
                 dataDiskIops: cliArgs.dataDiskIops,
                 deleteInstanceServerOnStop: cliArgs.deleteInstanceServerOnStop
             },
-            configuration: {
-                wolf: cliArgs.streamingServer === STREAMING_SERVER_WOLF ? { enable: true } : null,
-            }
         }
     }
 

@@ -3,7 +3,8 @@ import { PartialDeep } from "type-fest"
 import { input, select, confirm, password } from '@inquirer/prompts';
 import { ExitPromptError } from '@inquirer/core';
 import lodash from 'lodash'
-import { InstanceInputs, CommonConfigurationInputV1, CommonInstanceInput, CommonProvisionInputV1, CommonProvisionOutputV1 } from "../core/state/state";
+import { InstanceInputs, CommonConfigurationInputV1, CommonInstanceInput, CommonProvisionInputV1 } from "../core/state/state";
+import { toWolfConfig, redactSecrets } from "../core/state/wolf-config";
 import { getLogger } from "../log/utils";
 import { PUBLIC_IP_TYPE, PUBLIC_IP_TYPE_DYNAMIC, PUBLIC_IP_TYPE_STATIC } from '../core/const';
 import { CreateCliArgs } from './command';
@@ -29,6 +30,7 @@ export interface InputPrompter<A extends CreateCliArgs, PI extends CommonProvisi
 
 export const STREAMING_SERVER_SUNSHINE = "sunshine"
 export const STREAMING_SERVER_WOLF = "wolf"
+export const STREAMING_SERVER_NONE = "none"
 
 export interface PromptOptions {
     autoApprove?: boolean
@@ -70,8 +72,8 @@ export abstract class AbstractInputPrompter<
         try {
             const commonInput = await this.promptCommonInput(partialInput, createOptions)
 
-            this.logger.debug(`Prompting specific input with common input ${JSON.stringify(commonInput)}, ` + 
-                `partial input ${JSON.stringify(partialInput)} and create options ${JSON.stringify(createOptions)}`)
+            this.logger.debug(`Prompting specific input with common input ${JSON.stringify(redactSecrets(commonInput))}, ` + 
+                `partial input ${JSON.stringify(redactSecrets(partialInput))} and create options ${JSON.stringify(createOptions)}`)
             const finalInput = await this.promptSpecificInput(commonInput, partialInput, createOptions)
             return finalInput
         } catch (error) {
@@ -85,7 +87,7 @@ export abstract class AbstractInputPrompter<
     
     private async promptCommonInput(partialInput: PartialDeep<CommonInstanceInput>, createOptions: PromptOptions): Promise<CommonInstanceInput> {
 
-        this.logger.debug(`Prompting common input with default inputs ${JSON.stringify(partialInput)} and create options ${JSON.stringify(createOptions)}`)
+        this.logger.debug(`Prompting common input with default inputs ${JSON.stringify(redactSecrets(partialInput))} and create options ${JSON.stringify(createOptions)}`)
         
         const instanceName = await this.instanceName(partialInput.instanceName)
         
@@ -107,7 +109,7 @@ export abstract class AbstractInputPrompter<
         }
         
         // Force null value for sunshine and wolf as an existing 'undefined' or {} on partial object would not override previous existing value in persisted state
-        let sunshineConfig = streamingServer.sunshineEnabled ? {
+        const sunshineConfig = streamingServer.sunshineEnabled ? {
             enable: streamingServer.sunshineEnabled,
             username: await this.promptSunshineUsername(partialInput.configuration?.sunshine?.username),
             passwordBase64: await this.promptSunshinePasswordBase64(partialInput.configuration?.sunshine?.passwordBase64),
@@ -116,9 +118,7 @@ export abstract class AbstractInputPrompter<
             maxBitrateKbps: partialInput.configuration?.sunshine?.maxBitrateKbps,
         } : null
 
-        let wolfConfig = streamingServer.wolfEnabled ? {
-            enable: streamingServer.wolfEnabled,
-        } : null
+        const wolfConfig = toWolfConfig(streamingServer.wolfEnabled)
 
         const autoStop = await this.promptAutoStop(partialInput.configuration?.autostop?.enable, partialInput.configuration?.autostop?.timeoutSeconds)
 
@@ -146,7 +146,7 @@ export abstract class AbstractInputPrompter<
             }
         }
 
-        this.logger.debug(`Prompted common input ${JSON.stringify(commonInput)}`)
+        this.logger.debug(`Prompted common input ${JSON.stringify(redactSecrets(commonInput))}`)
 
         return commonInput
     }
@@ -163,12 +163,15 @@ export abstract class AbstractInputPrompter<
      * - Merge both and return the still potentially partial Input (which can be completed by prompting user)
      */
     cliArgsIntoPartialInput(cliArgs: A): PartialDeep<InstanceInputs<PI, CI>> {
-        this.logger.debug(`Parsing CLI args ${JSON.stringify(cliArgs)} into Input interface...`)
+        this.logger.debug(`Parsing CLI args ${JSON.stringify(redactSecrets(cliArgs))} into Input interface...`)
 
         const provisionerInput = this.buildProvisionerInputFromCliArgs(cliArgs)
         const commonInput = this.buildCommonInputFromCliArgs(cliArgs)
-        const result = lodash.merge({}, commonInput, provisionerInput)
-        this.logger.debug(`Parsed CLI args ${JSON.stringify(cliArgs)} into ${JSON.stringify(result)}`)
+        
+        const target: PartialDeep<InstanceInputs<PI, CI>> = {};
+        const result = lodash.merge(target, commonInput, provisionerInput)
+
+        this.logger.debug(`Parsed CLI args ${JSON.stringify(redactSecrets(cliArgs))} into ${JSON.stringify(redactSecrets(result))}`)
 
         return result
     }
@@ -203,9 +206,7 @@ export abstract class AbstractInputPrompter<
                     imageTag: cliArgs.sunshineImageTag,
                     maxBitrateKbps: cliArgs.sunshineMaxBitrateKbps,
                 } : undefined,
-                wolf: cliArgs.streamingServer == STREAMING_SERVER_WOLF ? {
-                    enable: true,
-                } : undefined,
+                wolf: cliArgs.streamingServer !== undefined ? toWolfConfig(cliArgs.streamingServer === STREAMING_SERVER_WOLF) : undefined,
                 locale: cliArgs.useLocale,
                 keyboard: cliArgs.keyboardLayout ? {
                     layout: cliArgs.keyboardLayout,

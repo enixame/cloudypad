@@ -4,6 +4,7 @@ import { AzureProviderStateV0 } from '../../providers/azure/state'
 import { GcpProviderStateV0 } from '../../providers/gcp/state'
 import { z } from "zod"
 import { CLOUDYPAD_CONFIGURATOR_LIST } from "../const"
+import { toWolfConfig } from "./wolf-config"
 
 const CommonProvisionOutputV1Schema = z.object({
     host: z.string().describe("Instance hostname or IP address. Can be used by Moonlight to pair with instance. Maybe be an IP or a FQDN."),
@@ -75,7 +76,7 @@ const CommonConfigurationInputV1Schema = z.object({
 .transform((data) => {
     // If neither Sunshine nor Wolf enabled, enable Wolf
     if(!data.sunshine?.enable && !data.wolf?.enable){
-        data.wolf = { enable: true }
+        data.wolf = toWolfConfig(true)
         data.sunshine = null
     }
     return data

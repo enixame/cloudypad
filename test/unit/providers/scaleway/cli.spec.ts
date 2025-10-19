@@ -1,6 +1,7 @@
 import { deepEqual, strictEqual } from 'assert/strict';
 import sinon from 'sinon';
 import { ScalewayCreateCliArgs, ScalewayInputPrompter } from '../../../../src/providers/scaleway/cli';
+import { STREAMING_SERVER_WOLF } from "../../../../src/cli/prompter";
 import { DEFAULT_COMMON_CLI_ARGS, DEFAULT_COMMON_INPUT, getUnitTestCoreConfig } from '../../utils';
 import { PartialDeep } from 'type-fest';
 import lodash from 'lodash';
@@ -252,5 +253,49 @@ describe('Scaleway input prompter', () => {
 
         strictEqual(result.provision.dataDiskSizeGb, 50)
         strictEqual(result.provision.dataDiskIops, 5000) // Uses first tier as default
+    })
+
+    describe('CLI args to wolf configuration mapping', () => {
+        class TestableScalewayInputPrompter extends ScalewayInputPrompter {
+            public testCliArgsIntoPartialInput(cliArgs: ScalewayCreateCliArgs) {
+                return this.cliArgsIntoPartialInput(cliArgs)
+            }
+        }
+
+        it('maps wolf correctly from CLI when streamingServer is wolf', () => {
+            const prompter = new TestableScalewayInputPrompter({ coreConfig })
+            const wolfArgs: ScalewayCreateCliArgs = { 
+                ...TEST_CLI_ARGS, 
+                streamingServer: STREAMING_SERVER_WOLF 
+            }
+            
+            const result = prompter.testCliArgsIntoPartialInput(wolfArgs)
+            
+            strictEqual(result.configuration?.wolf?.enable, true)
+        })
+
+        it('maps wolf to null when streamingServer is sunshine', () => {
+            const prompter = new TestableScalewayInputPrompter({ coreConfig })
+            const sunshineArgs: ScalewayCreateCliArgs = { 
+                ...TEST_CLI_ARGS, 
+                streamingServer: 'sunshine' 
+            }
+            
+            const result = prompter.testCliArgsIntoPartialInput(sunshineArgs)
+            
+            strictEqual(result.configuration?.wolf, null)
+        })
+
+        it('maps wolf to null when streamingServer is unknown value', () => {
+            const prompter = new TestableScalewayInputPrompter({ coreConfig })
+            const unknownArgs: ScalewayCreateCliArgs = { 
+                ...TEST_CLI_ARGS, 
+                streamingServer: 'unknown-server' 
+            }
+            
+            const result = prompter.testCliArgsIntoPartialInput(unknownArgs)
+            
+            strictEqual(result.configuration?.wolf, null)
+        })
     })
 })
