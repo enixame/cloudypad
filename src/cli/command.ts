@@ -70,6 +70,10 @@ export const CLI_OPTION_ROOT_DISK_SIZE = new Option('--root-disk-size <size>', '
     .argParser(parseInt)
 export const CLI_OPTION_DATA_DISK_SIZE = new Option('--data-disk-size <size>', 'Data disk size in GB (for game data)')
     .argParser(parseInt)
+export const CLI_OPTION_DATA_DISK_PERFORMANCE = new Option('--data-disk-performance <profile>', 
+    'Data disk performance profile (AWS only). Options: "standard" (no extra cost), "medium" (50% of instance max), ' +
+    '"high" (75% of instance max), "maximum" (100% of instance max, capped at 1000 MB/s). ' +
+    'Profiles are automatically adapted to instance EBS bandwidth capabilities. Cost varies by instance type.')
 
 export const CLI_OPTION_PUBLIC_IP_TYPE = new Option('--public-ip-type <type>', `Public IP type. Either ${PUBLIC_IP_TYPE_STATIC} or ${PUBLIC_IP_TYPE_DYNAMIC}`)
     .argParser(parsePublicIpType)

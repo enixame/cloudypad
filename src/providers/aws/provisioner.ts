@@ -25,11 +25,18 @@ export class AwsProvisioner extends AbstractInstanceProvisioner<AwsProvisionInpu
             workspaceOptions: this.args.coreConfig.pulumi?.workspaceOptions
         })
 
+        // Handle backward compatibility: if diskSize is set but not rootDiskSizeGb, use diskSize
+        const rootVolumeSizeGB = this.args.provisionInput.rootDiskSizeGb ?? this.args.provisionInput.diskSize ?? 20
+        const dataVolumeSizeGB = this.args.provisionInput.dataDiskSizeGb
+        
         const pulumiConfig: PulumiStackConfigAws = {
             instanceType: this.args.provisionInput.instanceType,
             publicIpType: this.args.provisionInput.publicIpType,
             region: this.args.provisionInput.region,
-            rootVolumeSizeGB: this.args.provisionInput.diskSize,
+            rootVolumeSizeGB: rootVolumeSizeGB,
+            dataVolumeSizeGB: dataVolumeSizeGB,
+            dataVolumeIops: this.args.provisionInput.dataDiskIops,
+            dataVolumeThroughput: this.args.provisionInput.dataDiskThroughput,
             publicSshKeyContent: sshPublicKeyContent,
             useSpot: this.args.provisionInput.useSpot,
             billingAlert: this.args.provisionInput.costAlert ?? undefined,
@@ -43,6 +50,9 @@ export class AwsProvisioner extends AbstractInstanceProvisioner<AwsProvisionInpu
             host: pulumiOutputs.publicIp,
             publicIPv4: pulumiOutputs.publicIp,
             instanceId: pulumiOutputs.instanceId,
+            rootDiskId: pulumiOutputs.rootDiskId ?? undefined,
+            dataDiskId: pulumiOutputs.dataDiskId ?? undefined,
+            dataDiskRebootRequired: true,
         }
 
     }

@@ -1,7 +1,7 @@
 import * as assert from 'assert';
 import { AwsInstanceInput } from '../../../../src/providers/aws/state';
 import { PUBLIC_IP_TYPE_STATIC } from '../../../../src/core/const';
-import { DEFAULT_COMMON_INPUT, DEFAULT_COMMON_CLI_ARGS, getUnitTestCoreClient, getUnitTestCoreConfig } from "../../utils";
+import { DEFAULT_COMMON_INPUT, DEFAULT_COMMON_CLI_ARGS, getUnitTestCoreConfig } from "../../utils";
 import { AwsCreateCliArgs, AwsInputPrompter } from '../../../../src/providers/aws/cli';
 import lodash from 'lodash'
 import { PartialDeep } from 'type-fest';
@@ -16,7 +16,10 @@ describe('AWS input prompter', () => {
         provision: {
             ...DEFAULT_COMMON_INPUT.provision,
             instanceType: "g5.2xlarge",
-            diskSize: 200,
+            rootDiskSizeGb: 20,
+            dataDiskSizeGb: 200,
+            dataDiskIops: 3000, // Standard profile
+            dataDiskThroughput: 125, // Standard profile
             publicIpType: PUBLIC_IP_TYPE_STATIC,
             region: "us-west-2",
             useSpot: true,
@@ -33,7 +36,8 @@ describe('AWS input prompter', () => {
     const TEST_CLI_ARGS: AwsCreateCliArgs = {
         ...DEFAULT_COMMON_CLI_ARGS,
         name: instanceName,
-        diskSize: TEST_INPUT.provision.diskSize,
+        rootDiskSize: TEST_INPUT.provision.rootDiskSizeGb,
+        dataDiskSize: TEST_INPUT.provision.dataDiskSizeGb,
         publicIpType: TEST_INPUT.provision.publicIpType,
         instanceType: TEST_INPUT.provision.instanceType,
         region: TEST_INPUT.provision.region,
@@ -43,21 +47,24 @@ describe('AWS input prompter', () => {
     }
 
     it('should return provided inputs without prompting when full input provider', async () => {
-        const coreClient = getUnitTestCoreClient()
         const result = await new AwsInputPrompter({ coreConfig: coreConfig }).promptInput(TEST_INPUT, { autoApprove: true })
         assert.deepEqual(result, TEST_INPUT)
     })
 
     it('should convert CLI args into partial input', () => {
-        const coreClient = getUnitTestCoreClient()
         const prompter = new AwsInputPrompter({ coreConfig: coreConfig })
         const result = prompter.cliArgsIntoPartialInput(TEST_CLI_ARGS)
 
         const expected: PartialDeep<AwsInstanceInput> = {
-            ...TEST_INPUT,
+            instanceName: TEST_INPUT.instanceName,
             provision: {
-                ...TEST_INPUT.provision,
                 ssh: lodash.omit(TEST_INPUT.provision.ssh, "user"),
+                instanceType: TEST_INPUT.provision.instanceType,
+                rootDiskSizeGb: TEST_INPUT.provision.rootDiskSizeGb,
+                dataDiskSizeGb: TEST_INPUT.provision.dataDiskSizeGb,
+                publicIpType: TEST_INPUT.provision.publicIpType,
+                region: TEST_INPUT.provision.region,
+                useSpot: TEST_INPUT.provision.useSpot,
                 costAlert: {
                     limit: 999,
                     notificationEmail: "dummy@crafteo.io",
@@ -65,8 +72,8 @@ describe('AWS input prompter', () => {
             },
             configuration: {
                 ...TEST_INPUT.configuration,
-                // cliArgsIntoPartialInput will leave this value specifically undefined
-                wolf: null
+                // cliArgsIntoPartialInput will leave wolf as undefined when streamingServer is sunshine
+                wolf: undefined
             }
         }
         

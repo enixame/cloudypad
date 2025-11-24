@@ -6,7 +6,8 @@ provision:
     host: 18.199.182.227
     instanceId: i-0ae901f1799b17fdf
   input:
-    diskSize: 200
+    rootDiskSizeGb: 20
+    dataDiskSizeGb: 200
     instanceType: g4dn.2xlarge
     publicIpType: static
     region: eu-central-1

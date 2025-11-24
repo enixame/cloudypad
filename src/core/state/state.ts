@@ -9,6 +9,7 @@ const CommonProvisionOutputV1Schema = z.object({
     host: z.string().describe("Instance hostname or IP address. Can be used by Moonlight to pair with instance. Maybe be an IP or a FQDN."),
     publicIPv4: z.string().optional().describe("Instance public IPv4 address if any. IPv4 may change in instance lifecycle, prefer using host unless IP is prefered for specific use cases."),
     dataDiskId: z.string().optional().describe("Unique ID of data disk (if any) which can be found on instance /dev/disk/by-id/<data-disk-id>"),
+    dataDiskRebootRequired: z.boolean().optional().describe("Whether a reboot is required before mounting data disk to ensure stable device detection (e.g., AWS with instance stores)"),
 }).passthrough()
 
 const CommonProvisionInputV1Schema = z.object({

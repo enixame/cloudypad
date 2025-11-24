@@ -48,7 +48,10 @@ describe('AWS lifecycle', () => {
                 user: "ubuntu",
             },
             instanceType: instanceType,
-            diskSize: 100,
+            rootDiskSizeGb: 20,
+            dataDiskSizeGb: 100,
+            dataDiskIops: 3000, // Standard profile
+            dataDiskThroughput: 125, // Standard profile
             publicIpType: PUBLIC_IP_TYPE_STATIC,
             region: region,
             useSpot: false,

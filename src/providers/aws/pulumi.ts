@@ -73,6 +73,8 @@ class CloudyPadEC2Instance extends pulumi.ComponentResource {
      */
     readonly publicIp: pulumi.Output<string>
     readonly instanceId: pulumi.Output<string>
+    readonly rootDiskId: pulumi.Output<string | null>
+    readonly dataDiskId: pulumi.Output<string | null>
 
     constructor(name: string, args: CloudyPadEC2instanceArgs, opts? : pulumi.ComponentResourceOptions) {
         super("crafteo:cloudypad:aws:ec2-instance", name, args, opts);
@@ -89,7 +91,7 @@ class CloudyPadEC2Instance extends pulumi.ComponentResource {
         }
 
         if(args.billingAlert){
-            const ec2 = new aws.budgets.Budget(`${name}-cost-alert`, {
+            new aws.budgets.Budget(`${name}-cost-alert`, {
                 name: `${name}-cost-alert`,
                 budgetType: "COST",
                 limitAmount: args.billingAlert.limit,
@@ -194,6 +196,8 @@ class CloudyPadEC2Instance extends pulumi.ComponentResource {
         })
 
         this.volumes = []
+        let dataDiskId: pulumi.Output<string> | undefined = undefined
+        
         args.additionalVolumes?.forEach(v => {        
             const vol = new aws.ebs.Volume(`${name}-volume-${v.deviceName}`, {
                 encrypted: v.encrypted || true,
@@ -212,8 +216,16 @@ class CloudyPadEC2Instance extends pulumi.ComponentResource {
             }, commonPulumiOpts);
 
             this.volumes.push(vol)
+            
+            // Track data disk specifically (assumes it's the first additional volume)
+            if (!dataDiskId) {
+                dataDiskId = vol.id
+            }
         })
         
+        // Set disk IDs
+        this.rootDiskId = this.ec2Instance.rootBlockDevice.apply(rbd => rbd?.volumeId ?? null)
+        this.dataDiskId = dataDiskId ?? pulumi.output(null)
 
         if (args.publicIpType === PUBLIC_IP_TYPE_STATIC) {
             this.eip = new aws.ec2.Eip(`${name}-eip`, {
@@ -241,6 +253,7 @@ async function awsPulumiProgram(): Promise<Record<string, any> | void> {
     const config = new pulumi.Config();
     const instanceType = config.require("instanceType");
     const rootVolumeSizeGB = config.requireNumber("rootVolumeSizeGB");
+    const dataVolumeSizeGB = config.getNumber("dataVolumeSizeGB");
     const publicIpType = config.require("publicIpType");
     const publicKeyContent = config.require("publicSshKeyContent");
     const useSpot = config.requireBoolean("useSpot");
@@ -290,6 +303,25 @@ async function awsPulumiProgram(): Promise<Record<string, any> | void> {
         }
     }
 
+    // Build additional volumes array if data disk is requested
+    const additionalVolumes: VolumeArgs[] = []
+    if (dataVolumeSizeGB && dataVolumeSizeGB > 0) {
+        const dataVolumeIops = config.getNumber("dataVolumeIops")
+        const dataVolumeThroughput = config.getNumber("dataVolumeThroughput")
+        
+        // Note: Actual disk throughput is limited by instance EBS bandwidth
+        // For example, g4dn.xlarge has max ~437 MB/s, so requesting 1000 MB/s won't provide benefit
+        // See: https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ebs-optimized.html
+        additionalVolumes.push({
+            size: dataVolumeSizeGB,
+            type: "gp3",
+            deviceName: "/dev/sdf", // AWS device name for additional volumes
+            encrypted: true,
+            iops: dataVolumeIops,
+            throughput: dataVolumeThroughput,
+        })
+    }
+
     const instance = new CloudyPadEC2Instance(instanceName, {
         ami: ubuntuAmi.imageId,
         type: instanceType,
@@ -299,6 +331,7 @@ async function awsPulumiProgram(): Promise<Record<string, any> | void> {
             encrypted: true,
             sizeGb: rootVolumeSizeGB
         },
+        additionalVolumes: additionalVolumes,
         publicIpType: publicIpType,
         ignorePublicKeyChanges: true,
         spot: {
@@ -316,7 +349,9 @@ async function awsPulumiProgram(): Promise<Record<string, any> | void> {
 
     return {
         instanceId: instance.instanceId,
-        publicIp: instance.publicIp
+        publicIp: instance.publicIp,
+        rootDiskId: instance.rootDiskId,
+        dataDiskId: instance.dataDiskId,
     }
 
 }
@@ -325,6 +360,9 @@ export interface PulumiStackConfigAws {
     region: string
     instanceType: string
     rootVolumeSizeGB: number
+    dataVolumeSizeGB?: number
+    dataVolumeIops?: number
+    dataVolumeThroughput?: number
     publicSshKeyContent: string
     publicIpType: PUBLIC_IP_TYPE
     useSpot: boolean
@@ -338,6 +376,8 @@ export interface PulumiStackConfigAws {
 export interface AwsPulumiOutput {
     instanceId: string
     publicIp: string
+    rootDiskId: string | null
+    dataDiskId: string | null
 }
 
 export interface AwsPulumiClientArgs {
@@ -363,6 +403,19 @@ export class AwsPulumiClient extends InstancePulumiClient<PulumiStackConfigAws, 
         await stack.setConfig("aws:region", { value: config.region})
         await stack.setConfig("instanceType", { value: config.instanceType})
         await stack.setConfig("rootVolumeSizeGB", { value: config.rootVolumeSizeGB.toString()})
+        
+        if (config.dataVolumeSizeGB !== undefined && config.dataVolumeSizeGB > 0) {
+            await stack.setConfig("dataVolumeSizeGB", { value: config.dataVolumeSizeGB.toString()})
+            
+            if (config.dataVolumeIops !== undefined) {
+                await stack.setConfig("dataVolumeIops", { value: config.dataVolumeIops.toString()})
+            }
+            
+            if (config.dataVolumeThroughput !== undefined) {
+                await stack.setConfig("dataVolumeThroughput", { value: config.dataVolumeThroughput.toString()})
+            }
+        }
+        
         await stack.setConfig("publicSshKeyContent", { value: config.publicSshKeyContent})
         await stack.setConfig("publicIpType", { value: config.publicIpType})
         await stack.setConfig("useSpot", { value: config.useSpot.toString()})
@@ -384,7 +437,9 @@ export class AwsPulumiClient extends InstancePulumiClient<PulumiStackConfigAws, 
     protected async buildTypedOutput(outputs: OutputMap) : Promise<AwsPulumiOutput>{
         return {
             instanceId: outputs["instanceId"].value as string, // TODO validate with Zod
-            publicIp: outputs["publicIp"].value as string
+            publicIp: outputs["publicIp"].value as string,
+            rootDiskId: outputs["rootDiskId"]?.value as string | null,
+            dataDiskId: outputs["dataDiskId"]?.value as string | null,
         }   
     }
 

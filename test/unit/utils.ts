@@ -18,7 +18,7 @@ import { PartialDeep } from "type-fest";
 import * as lodash from "lodash"
 import { CoreConfig } from "../../src/core/config/interface";
 import { DummyProviderClient } from "../../src/providers/dummy/provider";
-import { DummyInstanceStateV1, DummyProvisionInputV1, DummyConfigurationOutputV1 } from "../../src/providers/dummy/state";
+import { DummyInstanceStateV1 } from "../../src/providers/dummy/state";
 
 /**
  * CommonInstanceInput with as most fields filled as possible while keeping it valid:
@@ -93,7 +93,12 @@ export const DUMMY_SSH_PUBLIC_KEY_PATH = path.resolve(__dirname, '..', 'resource
 /**
  * Dummy output returned by Pulumi during unit test for AWS
  */
-export const DUMMY_AWS_PULUMI_OUTPUT: AwsPulumiOutput = { instanceId: "i-0123456789", publicIp: "127.0.0.1" }
+export const DUMMY_AWS_PULUMI_OUTPUT: AwsPulumiOutput = { 
+    instanceId: "i-0123456789", 
+    publicIp: "127.0.0.1",
+    rootDiskId: "vol-root123",
+    dataDiskId: "vol-data456"
+}
 
 /**
  * Dummy output returned by Pulumi during unit test for Azure
@@ -187,7 +192,10 @@ export function createDummyAwsState(override: PartialDeep<AwsInstanceStateV1>): 
             provider: "aws",
             input: {
                 ...DEFAULT_COMMON_INPUT.provision,
-                diskSize: 100,
+                rootDiskSizeGb: 20,
+                dataDiskSizeGb: 100,
+                dataDiskIops: 3000, // Standard profile
+                dataDiskThroughput: 125, // Standard profile
                 instanceType: "g4dn.xlarge",
                 region: "eu-west-1",
                 publicIpType: "static",

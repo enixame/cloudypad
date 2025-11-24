@@ -3,22 +3,38 @@
     msg: "cloudypad_data_disk_id must be set"
   when: cloudypad_data_disk_id is not defined
 
+# Reboot to ensure all block devices are properly initialized
+# Some providers (e.g., AWS with instance stores + EBS volumes) have unstable device order
+# A reboot helps ensure consistent device detection
+- name: Reboot to stabilize device detection
+  reboot:
+    msg: "Rebooting to ensure all block devices are properly initialized"
+    reboot_timeout: 300
+  when: cloudypad_data_disk_reboot_required | default(false)
+
 - name: copy wait-for-disk.sh to /usr/local/bin
   become: true
   copy:
     src: wait-for-disk.sh
     dest: /usr/local/bin/wait-for-disk.sh
     mode: '0755'
- 
-# After provisioning, the data disk may not be available immediately.
-# eg. if instance was already provisioned and a new disk is attached with an update
-# it may take a few moments to be visible on host
-- name: Wait for data disk to be available
-  shell: /usr/local/bin/wait-for-disk.sh "{{ cloudypad_data_disk_id }}"
 
-# depending on providers attached disk can be found under /dev/disk/by-id with various naming conventions
-# filter through available disks and find the one matching the data disk ID
-- name: Find disk matching data disk ID
+# The wait-for-disk.sh script will wait up to 3 minutes for the specific disk to be available
+# It checks for the exact volume ID, excludes instance stores and root disk
+# Returns the correct device name (e.g., nvme1n1)
+- name: Wait for data disk and get device name
+  shell: /usr/local/bin/wait-for-disk.sh "{{ cloudypad_data_disk_id }}"
+  register: disk_detection_result
+  changed_when: false
+  failed_when: false
+
+- name: Set disk name from script result
+  set_fact:
+    cloudypad_data_disk_name: "{{ disk_detection_result.stdout | trim }}"
+  when: disk_detection_result.rc == 0 and disk_detection_result.stdout | trim | length > 0
+
+# Fallback to ansible_devices if script failed
+- name: Find disk matching data disk ID using ansible facts
   set_fact:
     cloudypad_data_disk_name: >-
       {{
@@ -29,7 +45,17 @@
         | map(attribute='key')
         | list
         | first
+        | default(
+          hostvars[inventory_hostname].ansible_devices
+          | dict2items
+          | selectattr('value.serial', 'defined')
+          | selectattr('value.serial', 'match', '.*' + cloudypad_data_disk_id)
+          | map(attribute='key')
+          | list
+          | first, true
+        )
       }}
+  when: cloudypad_data_disk_name is not defined or cloudypad_data_disk_name | length == 0
 
 - debug:
     msg: "Found disk for '{{ cloudypad_data_disk_id }}': '{{ cloudypad_data_disk_name }}'"

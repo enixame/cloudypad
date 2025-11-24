@@ -5,11 +5,17 @@ import { GenericStateParser } from "../../core/state/parser"
 
 const AwsProvisionOutputV1Schema = CommonProvisionOutputV1Schema.extend({
     instanceId: z.string().describe("AWS instance ID"),
+    rootDiskId: z.string().describe("AWS root disk ID").optional(),
+    dataDiskId: z.string().describe("AWS data disk ID").optional(),
 })
 
 const AwsProvisionInputV1Schema = CommonProvisionInputV1Schema.extend({
     instanceType: z.string().describe("Type of AWS instance"),
-    diskSize: z.number().describe("Disk size in GB"),
+    diskSize: z.number().describe("Disk size in GB (deprecated, use rootDiskSizeGb and dataDiskSizeGb instead)").optional(),
+    rootDiskSizeGb: z.number().default(20).describe("Root (OS) disk size in GB."),
+    dataDiskSizeGb: z.number().default(0).describe("Data disk size in GB. If non-0, a disk dedicated for instance data (such as games data) will be created."),
+    dataDiskIops: z.number().optional().describe("IOPS for data disk. If not set, uses default gp3 baseline (3000 IOPS)."),
+    dataDiskThroughput: z.number().optional().describe("Throughput in MB/s for data disk. If not set, uses default gp3 baseline (125 MB/s)."),
     publicIpType: z.enum([PUBLIC_IP_TYPE_STATIC, PUBLIC_IP_TYPE_DYNAMIC]).describe("Type of public IP address"),
     region: z.string().describe("AWS region"),
     useSpot: z.boolean().describe("Whether to use spot instances"),
